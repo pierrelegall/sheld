@@ -1,44 +1,49 @@
 # Python bwrap configuration
+# All namespaces unshared by default
+# Use share: to selectively allow namespaces
 
-base:
-  share:
-    - /tmp
+models:
+  base:
+    share:
+      - user       # Share user namespace with host
+    ro_bind:
+      - /usr
+      - /lib
+      - /lib64
 
 commands:
   python:
     enabled: true
     extends: base
-    share:
-      - ~/.python_history
-      - ~/.local/share/virtualenvs
     bind:
+      - ~/.python_history:~/.python_history
+      - ~/.local:~/.local
       - $PWD:/workspace
 
   python3:
     enabled: true
     extends: base
-    share:
-      - ~/.python_history
-      - ~/.local/share/virtualenvs
     bind:
+      - ~/.python_history:~/.python_history
+      - ~/.local:~/.local
       - $PWD:/workspace
 
   pip:
     enabled: true
     extends: base
     share:
-      - ~/.cache/pip
+      - network    # pip needs network for package downloads
     bind:
+      - ~/.cache/pip:~/.cache/pip
+      - ~/.local:~/.local
       - $PWD:/workspace
-    unshare:
-      - network
 
   pip3:
     enabled: true
     extends: base
     share:
-      - ~/.cache/pip
+      - network    # pip3 needs network for package downloads
     bind:
+      - ~/.cache/pip:~/.cache/pip
+      - ~/.local:~/.local
       - $PWD:/workspace
-    unshare:
-      - network

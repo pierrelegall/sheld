@@ -1,32 +1,38 @@
 # Rust/Cargo bwrap configuration
+# All namespaces unshared by default
+# Use share: to selectively allow namespaces
 
-base:
-  share:
-    - /tmp
+models:
+  base:
+    share:
+      - user       # Share user namespace with host
+    ro_bind:
+      - /usr
+      - /lib
+      - /lib64
 
 commands:
   cargo:
     enabled: true
     extends: base
     share:
-      - ~/.cargo
-      - ~/.rustup
+      - network    # cargo needs network for crate downloads
     bind:
+      - ~/.cargo:~/.cargo
+      - ~/.rustup:~/.rustup
       - $PWD:/workspace
-    unshare:
-      - network
 
   rustc:
     enabled: true
     extends: base
-    share:
-      - ~/.rustup
     bind:
+      - ~/.rustup:~/.rustup
       - $PWD:/workspace
 
   rustup:
     enabled: true
+    extends: base
     share:
-      - ~/.rustup
-    unshare:
-      - network
+      - network    # rustup needs network for toolchain downloads
+    bind:
+      - ~/.rustup:~/.rustup

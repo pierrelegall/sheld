@@ -1,17 +1,23 @@
 # Go bwrap configuration
+# All namespaces unshared by default
+# Use share: to selectively allow namespaces
 
-base:
-  share:
-    - /tmp
+models:
+  base:
+    share:
+      - user       # Share user namespace with host
+    ro_bind:
+      - /usr
+      - /lib
+      - /lib64
 
 commands:
   go:
     enabled: true
     extends: base
     share:
-      - ~/go
-      - ~/.cache/go-build
+      - network    # go needs network for module downloads
     bind:
+      - ~/go:~/go
+      - ~/.cache/go-build:~/.cache/go-build
       - $PWD:/workspace
-    unshare:
-      - network

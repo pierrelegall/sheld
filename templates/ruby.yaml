@@ -1,8 +1,15 @@
 # Ruby/Gem/Bundler bwrap configuration
+# All namespaces unshared by default
+# Use share: to selectively allow namespaces
 
-base:
-  share:
-    - /tmp
+models:
+  base:
+    share:
+      - user       # Share user namespace with host
+    ro_bind:
+      - /usr
+      - /lib
+      - /lib64
 
 commands:
   ruby:
@@ -15,19 +22,17 @@ commands:
     enabled: true
     extends: base
     share:
-      - ~/.gem
+      - network    # gem needs network for package downloads
     bind:
+      - ~/.gem:~/.gem
       - $PWD:/workspace
-    unshare:
-      - network
 
   bundle:
     enabled: true
     extends: base
     share:
-      - ~/.bundle
-      - ~/.gem
+      - network    # bundle needs network for package downloads
     bind:
+      - ~/.bundle:~/.bundle
+      - ~/.gem:~/.gem
       - $PWD:/workspace
-    unshare:
-      - network

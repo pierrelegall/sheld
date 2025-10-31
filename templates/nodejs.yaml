@@ -1,35 +1,38 @@
 # Node.js/npm bwrap configuration
+# All namespaces unshared by default
+# Use share: to selectively allow namespaces
 
-base:
-  share:
-    - /tmp
+models:
+  base:
+    share:
+      - user       # Share user namespace with host
+    ro_bind:
+      - /usr
+      - /lib
+      - /lib64
 
 commands:
   npm:
     enabled: true
     extends: base
     share:
-      - ~/.npm
-      - ~/.npmrc
+      - network    # npm needs network for package downloads
     bind:
+      - ~/.npm:~/.npm
       - $PWD:/workspace
-    unshare:
-      - network
 
   node:
     enabled: true
     extends: base
-    share:
-      - ~/.node_repl_history
     bind:
+      - ~/.node_repl_history:~/.node_repl_history
       - $PWD:/workspace
 
   npx:
     enabled: true
     extends: base
     share:
-      - ~/.npm
+      - network    # npx needs network for package downloads
     bind:
+      - ~/.npm:~/.npm
       - $PWD:/workspace
-    unshare:
-      - network

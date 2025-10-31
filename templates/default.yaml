@@ -1,14 +1,19 @@
 # Default .bwrap configuration
 # Customize this file to specify which commands should be sandboxed
 
+# By default, all namespaces (user, pid, network, ipc, uts, cgroup) are unshared
+# Use 'share:' to selectively allow specific namespaces
+
 commands:
   # Example command configuration
   # npm:
   #   enabled: true
-  #   unshare:
-  #     - network
   #   share:
-  #     - ~/.npm
-  #     - /tmp
+  #     - user        # Share user namespace with host
+  #     - network     # Allow network access
   #   bind:
+  #     - ~/.npm:~/.npm
   #     - $PWD:/workspace
+  #   ro_bind:
+  #     - /usr
+  #     - /lib
