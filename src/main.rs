@@ -103,13 +103,15 @@ fn cmd_check(path: Option<String>) -> Result<()> {
     println!("Configuration is valid: {:?}", config_path);
     println!("Found {} command(s)", config.commands.len());
 
-    for (name, cmd_config) in &config.commands {
-        let status = if cmd_config.enabled {
-            "enabled"
-        } else {
-            "disabled"
-        };
-        println!("  - {} ({})", name, status);
+    // Sort commands alphabetically
+    let mut commands: Vec<_> = config.commands.iter().collect();
+    commands.sort_by_key(|(name, _)| *name);
+
+    for (name, cmd_config) in commands {
+        match cmd_config.enabled {
+            true => println!("  - {}", name),
+            false => println!("  - {} (disabled)", name),
+        }
     }
 
     Ok(())
@@ -118,8 +120,12 @@ fn cmd_check(path: Option<String>) -> Result<()> {
 fn cmd_list() -> Result<()> {
     let config = ConfigLoader::load()?.context("No .bwrap configuration found")?;
 
+    // Sort commands alphabetically
+    let mut commands: Vec<_> = config.commands.iter().collect();
+    commands.sort_by_key(|(name, _)| *name);
+
     println!("Active command configurations:");
-    for (name, cmd_config) in &config.commands {
+    for (name, cmd_config) in commands {
         if cmd_config.enabled {
             println!("\n{}:", name);
             if !cmd_config.share.is_empty() {
