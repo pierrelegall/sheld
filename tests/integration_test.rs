@@ -37,10 +37,9 @@ commands:
     let config = BwrapConfig::from_file(&config_path).unwrap();
 
     // Verify templates/base config
-    assert!(config.templates.is_some());
-    let templates = config.templates.as_ref().unwrap();
-    assert!(templates.base.is_some());
-    let base = templates.base.as_ref().unwrap();
+    assert_eq!(config.templates.len(), 1);
+    assert!(config.templates.contains_key("base"));
+    let base = config.templates.get("base").unwrap();
     assert_eq!(base.unshare, vec!["network"]);
     assert_eq!(base.ro_bind.len(), 2);
 
@@ -274,33 +273,48 @@ templates:
     use bwrap_manager::config::BwrapConfig;
     let config: BwrapConfig = serde_yaml::from_str(yaml).unwrap();
 
-    assert!(config.templates.is_some());
-    let templates = config.templates.as_ref().unwrap();
-    assert!(templates.base.is_some());
+    assert_eq!(config.templates.len(), 1);
+    assert!(config.templates.contains_key("base"));
     assert_eq!(config.commands.len(), 0);
 }
 
 #[test]
-fn test_extends_non_base() {
-    // Currently only "base" is supported for extends
-    // This test documents that behavior
+fn test_custom_template_name() {
     let yaml = r#"
-commands:
-  parent:
+templates:
+  minimal:
     unshare:
       - network
-  child:
-    extends: parent
+  strict:
     unshare:
+      - network
       - pid
+
+commands:
+  node:
+    extends: minimal
+    bind:
+      - ~/.npm:~/.npm
+  python:
+    extends: strict
 "#;
 
     use bwrap_manager::config::BwrapConfig;
     let config: BwrapConfig = serde_yaml::from_str(yaml).unwrap();
 
-    let child = config.get_command_config("child").unwrap();
-    let merged = config.merge_with_base(child.clone());
+    // Verify templates
+    assert_eq!(config.templates.len(), 2);
+    assert!(config.templates.contains_key("minimal"));
+    assert!(config.templates.contains_key("strict"));
 
-    // Since extends != "base", merging should not happen
-    assert_eq!(merged.unshare, child.unshare);
+    // Test node with minimal template
+    let node = config.get_command_config("node").unwrap();
+    let merged_node = config.merge_with_template(node);
+    assert_eq!(merged_node.unshare, vec!["network"]);
+    assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
+
+    // Test python with strict template
+    let python = config.get_command_config("python").unwrap();
+    let merged_python = config.merge_with_template(python);
+    assert_eq!(merged_python.unshare, vec!["network", "pid"]);
 }

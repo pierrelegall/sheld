@@ -11,17 +11,11 @@ pub struct BwrapConfig {
     #[serde(default)]
     pub commands: HashMap<String, CommandConfig>,
     #[serde(default)]
-    pub templates: Option<Templates>,
+    pub templates: HashMap<String, TemplateConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Templates {
-    #[serde(default)]
-    pub base: Option<BaseConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BaseConfig {
+pub struct TemplateConfig {
     #[serde(default)]
     pub unshare: Vec<String>,
     #[serde(default)]
@@ -75,21 +69,22 @@ impl BwrapConfig {
         self.commands.get(command).cloned()
     }
 
-    pub fn merge_with_base(&self, mut cmd_config: CommandConfig) -> CommandConfig {
+    pub fn merge_with_template(&self, mut cmd_config: CommandConfig) -> CommandConfig {
         if let Some(extends) = &cmd_config.extends {
-            if extends == "base" {
-                if let Some(templates) = &self.templates {
-                    if let Some(base) = &templates.base {
-                        // Merge base config into command config
-                        cmd_config.unshare.extend(base.unshare.clone());
-                        cmd_config.share.extend(base.share.clone());
-                        cmd_config.bind.extend(base.bind.clone());
-                        cmd_config.ro_bind.extend(base.ro_bind.clone());
-                    }
-                }
+            if let Some(template) = self.templates.get(extends) {
+                // Merge template config into command config
+                cmd_config.unshare.extend(template.unshare.clone());
+                cmd_config.share.extend(template.share.clone());
+                cmd_config.bind.extend(template.bind.clone());
+                cmd_config.ro_bind.extend(template.ro_bind.clone());
             }
         }
         cmd_config
+    }
+
+    // Deprecated: use merge_with_template instead
+    pub fn merge_with_base(&self, cmd_config: CommandConfig) -> CommandConfig {
+        self.merge_with_template(cmd_config)
     }
 }
 
@@ -139,12 +134,10 @@ commands:
       - ~/.npm:~/.npm
 "#;
         let config: BwrapConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.templates.is_some());
+        assert_eq!(config.templates.len(), 1);
+        assert!(config.templates.contains_key("base"));
 
-        let templates = config.templates.as_ref().unwrap();
-        assert!(templates.base.is_some());
-
-        let base = templates.base.as_ref().unwrap();
+        let base = config.templates.get("base").unwrap();
         assert_eq!(base.unshare, vec!["network", "pid"]);
         assert_eq!(base.ro_bind, vec!["/usr", "/lib"]);
 
@@ -304,5 +297,76 @@ commands:
         let config: BwrapConfig = serde_yaml::from_str(yaml).unwrap();
         let node_cmd = config.get_command_config("node").unwrap();
         assert_eq!(node_cmd.dev_bind, vec!["/dev/null", "/dev/random"]);
+    }
+
+    #[test]
+    fn test_custom_template_names() {
+        let yaml = r#"
+templates:
+  minimal:
+    unshare:
+      - network
+  strict:
+    unshare:
+      - network
+      - pid
+      - ipc
+    ro_bind:
+      - /usr
+
+commands:
+  node:
+    extends: minimal
+    bind:
+      - ~/.npm:~/.npm
+  python:
+    extends: strict
+    bind:
+      - ~/.local:~/.local
+"#;
+        let config: BwrapConfig = serde_yaml::from_str(yaml).unwrap();
+
+        // Verify templates exist
+        assert_eq!(config.templates.len(), 2);
+        assert!(config.templates.contains_key("minimal"));
+        assert!(config.templates.contains_key("strict"));
+
+        // Test node with minimal template
+        let node_cmd = config.get_command_config("node").unwrap();
+        assert_eq!(node_cmd.extends, Some("minimal".to_string()));
+        let merged_node = config.merge_with_template(node_cmd);
+        assert_eq!(merged_node.unshare, vec!["network"]);
+        assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
+
+        // Test python with strict template
+        let python_cmd = config.get_command_config("python").unwrap();
+        assert_eq!(python_cmd.extends, Some("strict".to_string()));
+        let merged_python = config.merge_with_template(python_cmd);
+        assert_eq!(merged_python.unshare, vec!["network", "pid", "ipc"]);
+        assert_eq!(merged_python.ro_bind, vec!["/usr"]);
+        assert_eq!(merged_python.bind, vec!["~/.local:~/.local"]);
+    }
+
+    #[test]
+    fn test_nonexistent_template() {
+        let yaml = r#"
+templates:
+  base:
+    unshare:
+      - network
+
+commands:
+  node:
+    extends: nonexistent
+    bind:
+      - ~/.npm:~/.npm
+"#;
+        let config: BwrapConfig = serde_yaml::from_str(yaml).unwrap();
+        let node_cmd = config.get_command_config("node").unwrap();
+        let merged = config.merge_with_template(node_cmd.clone());
+
+        // Should not merge anything, just return the original command config
+        assert_eq!(merged.unshare, node_cmd.unshare);
+        assert_eq!(merged.bind, node_cmd.bind);
     }
 }
