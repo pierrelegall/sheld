@@ -10,8 +10,8 @@ impl ConfigLoader {
     /// Search for .bwrap config file in hierarchical order
     pub fn find_config() -> Result<Option<PathBuf>> {
         // 1. Look for .bwrap in current directory and parent directories
-        if let Some(project_config) = Self::find_project_config()? {
-            return Ok(Some(project_config));
+        if let Some(local_config) = Self::find_local_config()? {
+            return Ok(Some(local_config));
         }
 
         // 2. Look for user-level config
@@ -19,16 +19,11 @@ impl ConfigLoader {
             return Ok(Some(user_config));
         }
 
-        // 3. Look for system-level config
-        if let Some(system_config) = Self::find_system_config()? {
-            return Ok(Some(system_config));
-        }
-
         Ok(None)
     }
 
     /// Find .bwrap file in current or parent directories
-    pub fn find_project_config() -> Result<Option<PathBuf>> {
+    pub fn find_local_config() -> Result<Option<PathBuf>> {
         let current_dir = env::current_dir().context("Failed to get current directory")?;
 
         let mut dir = current_dir.as_path();
@@ -63,17 +58,6 @@ impl ConfigLoader {
         }
 
         Ok(None)
-    }
-
-    /// Find system-level config at /etc/bwrap-manager/config
-    pub fn find_system_config() -> Result<Option<PathBuf>> {
-        let config_path = PathBuf::from("/etc/bwrap-manager/config");
-
-        if config_path.exists() {
-            Ok(Some(config_path))
-        } else {
-            Ok(None)
-        }
     }
 
     /// Load config from the found path

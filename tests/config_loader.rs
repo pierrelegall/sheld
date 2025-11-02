@@ -8,7 +8,7 @@ use tempfile::TempDir;
 static DIR_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
-fn test_find_project_config_in_current_dir() {
+fn test_find_local_config_in_current_dir() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -20,7 +20,7 @@ fn test_find_project_config_in_current_dir() {
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&temp_dir).unwrap();
 
-    let found = ConfigLoader::find_project_config().unwrap();
+    let found = ConfigLoader::find_local_config().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 
@@ -29,7 +29,7 @@ fn test_find_project_config_in_current_dir() {
 }
 
 #[test]
-fn test_find_project_config_in_parent_dir() {
+fn test_find_local_config_in_parent_dir() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -44,7 +44,7 @@ fn test_find_project_config_in_parent_dir() {
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&sub_dir).unwrap();
 
-    let found = ConfigLoader::find_project_config().unwrap();
+    let found = ConfigLoader::find_local_config().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 
@@ -53,7 +53,7 @@ fn test_find_project_config_in_parent_dir() {
 }
 
 #[test]
-fn test_find_project_config_not_found() {
+fn test_find_local_config_not_found() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -61,7 +61,7 @@ fn test_find_project_config_not_found() {
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&temp_dir).unwrap();
 
-    let found = ConfigLoader::find_project_config().unwrap();
+    let found = ConfigLoader::find_local_config().unwrap();
     assert!(found.is_none());
 
     env::set_current_dir(original_dir).unwrap();
@@ -73,19 +73,6 @@ fn test_find_user_config() {
     // We can't easily test this without mocking HOME env var
     let result = ConfigLoader::find_user_config();
     assert!(result.is_ok());
-}
-
-#[test]
-fn test_find_system_config() {
-    // This test just verifies the function works
-    // It won't find the file unless running in a special test environment
-    let result = ConfigLoader::find_system_config();
-    assert!(result.is_ok());
-
-    // System config likely doesn't exist in test environment
-    let config = result.unwrap();
-    // Just checking it returns Some or None without error
-    assert!(config.is_some() || config.is_none());
 }
 
 #[test]
@@ -131,10 +118,10 @@ fn test_load_without_config() {
 }
 
 #[test]
-fn test_find_config_hierarchy_project_first() {
+fn test_find_config_hierarchy_local_first() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
-    // Project config should take precedence over user/system configs
+    // Local config should take precedence over user/system configs
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join(".bwrap");
     fs::write(&config_path, "commands: {}").unwrap();
@@ -166,7 +153,7 @@ fn test_find_config_walks_up_directories() {
     env::set_current_dir(&sub2).unwrap();
 
     // Should find config in ancestor directory
-    let found = ConfigLoader::find_project_config().unwrap();
+    let found = ConfigLoader::find_local_config().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 
