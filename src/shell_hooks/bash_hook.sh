@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 
+# Copyright (C) 2025 Pierre Le Gall
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Bash hook for Shwrap auto wrapped commands.
 # Note: It use functions as aliases,
-# so user defined functions can be unset if exist.
+# so user defined functions can be reset/unset if exist.
 
 typeset -g SHWRAP_PREV_PWD="$PWD"
 typeset -g SHWRAP_WRAPPED_COMMANDS=""

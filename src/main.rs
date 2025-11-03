@@ -1,13 +1,16 @@
+// Copyright (C) 2025 Pierre Le Gall
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 mod cli;
 mod shell_hooks;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
-use shwrap::bwrap::BwrapBuilder;
-use shwrap::config::{self, loader::ConfigLoader};
 use cli::{Cli, Commands};
 use shell_hooks::Shell;
+use shwrap::bwrap::BwrapBuilder;
+use shwrap::config::{self, loader::ConfigLoader};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();

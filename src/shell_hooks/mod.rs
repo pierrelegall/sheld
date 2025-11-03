@@ -1,3 +1,6 @@
+// Copyright (C) 2025 Pierre Le Gall
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use anyhow::Result;
 
 pub mod bash;

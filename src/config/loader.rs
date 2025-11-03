@@ -1,3 +1,6 @@
+// Copyright (C) 2025 Pierre Le Gall
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use anyhow::{Context, Result};
 use std::env;
 use std::path::{Path, PathBuf};

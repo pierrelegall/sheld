@@ -1,3 +1,6 @@
+// Copyright (C) 2025 Pierre Le Gall
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use indoc::indoc;
 use std::fs;
 use tempfile::TempDir;
