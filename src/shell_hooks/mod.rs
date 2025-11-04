@@ -13,23 +13,33 @@ pub enum Shell {
     Bash,
     Zsh,
     Fish,
+    Nushell,
 }
 
 impl Shell {
+    pub fn to_str(&self) -> &str {
+        match self {
+            Shell::Bash => "bash",
+            Shell::Zsh => "zsh",
+            Shell::Fish => "fish",
+            Shell::Nushell => "nushell",
+        }
+    }
+
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "bash" => Some(Shell::Bash),
             "zsh" => Some(Shell::Zsh),
             "fish" => Some(Shell::Fish),
+            "nushell" => Some(Shell::Nushell),
             _ => None,
         }
     }
 
-    pub fn get_hook(&self) -> Box<dyn ShellHook> {
+    pub fn get_hook(&self) -> Option<Box<dyn ShellHook>> {
         match self {
-            Shell::Bash => Box::new(bash::BashHook),
-            Shell::Zsh => Box::new(bash::BashHook), // Zsh can use bash hooks
-            Shell::Fish => Box::new(bash::BashHook), // TODO: Implement fish hook
+            Shell::Bash => Some(Box::new(bash::BashHook)),
+            _ => None,
         }
     }
 }

@@ -173,7 +173,10 @@ fn cmd_shell_hook(shell_name: &str) -> Result<()> {
     let shell =
         Shell::from_str(shell_name).context(format!("Unsupported shell: {}", shell_name))?;
 
-    let hook = shell.get_hook();
+    let hook = shell
+        .get_hook()
+        .with_context(|| format!("No hook found for shell {}", shell.to_str()))?;
+
     let script = hook.generate()?;
 
     print!("{}", script);
