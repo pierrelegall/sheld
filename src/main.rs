@@ -4,7 +4,7 @@
 mod cli;
 mod shell_hooks;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 use cli::{Cli, CommandAction, ConfigAction, ShellHookAction, Subject};
