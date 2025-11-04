@@ -7,67 +7,48 @@ mod shell_hooks;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Commands};
+use cli::{Cli, CommandAction, ConfigAction, ShellHookAction, Subject};
 use shell_hooks::Shell;
 use shwrap::bwrap::BwrapBuilder;
 use shwrap::config::{self, loader::ConfigLoader};
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let input = Cli::parse();
 
-    match cli.command {
-        Commands::Init { template } => {
-            cmd_init(template)?;
-        }
-        Commands::Exec { command, args } => {
-            cmd_exec(&command, &args)?;
-        }
-        Commands::Check { path, silent } => {
-            cmd_check(path, silent)?;
-        }
-        Commands::List { simple } => {
-            cmd_list(simple)?;
-        }
-        Commands::Which => {
-            cmd_which()?;
-        }
-        Commands::Show { command, args } => {
-            cmd_show(&command, &args)?;
-        }
-        Commands::ShellHook { shell } => {
-            cmd_shell_hook(&shell)?;
-        }
+    match input.subject {
+        Subject::Config { action } => match action {
+            ConfigAction::Init { template } => {
+                config_init_cmd(template)?;
+            }
+            ConfigAction::Check { path, silent } => {
+                config_check_cmd(path, silent)?;
+            }
+            ConfigAction::Which => {
+                config_which_cmd()?;
+            }
+        },
+        Subject::Command { action } => match action {
+            CommandAction::List { simple } => {
+                command_list_cmd(simple)?;
+            }
+            CommandAction::Exec { command, args } => {
+                command_exec_cmd(&command, &args)?;
+            }
+            CommandAction::Show { command, args } => {
+                command_show_cmd(&command, &args)?;
+            }
+        },
+        Subject::ShellHook { action } => match action {
+            ShellHookAction::Get { shell } => {
+                shell_hook_get_cmd(&shell)?;
+            }
+        },
     }
 
     Ok(())
 }
 
-fn cmd_init(template: Option<String>) -> Result<()> {
-    use std::fs;
-
-    let template_content = match template.as_deref() {
-        Some("nodejs") => include_str!("../templates/nodejs.yaml"),
-        Some("python") => include_str!("../templates/python.yaml"),
-        Some("ruby") => include_str!("../templates/ruby.yaml"),
-        Some("go") => include_str!("../templates/go.yaml"),
-        Some("rust") => include_str!("../templates/rust.yaml"),
-        None => include_str!("../templates/default.yaml"),
-        Some(other) => bail!("Unknown template: {}", other),
-    };
-
-    let config_path = ".shwrap";
-    if std::path::Path::new(config_path).exists() {
-        bail!(".shwrap file already exists in current directory");
-    }
-
-    fs::write(config_path, template_content).context("Failed to write .shwrap file")?;
-
-    println!("Created .shwrap configuration file");
-
-    Ok(())
-}
-
-fn cmd_exec(command: &str, args: &[String]) -> Result<()> {
+fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     let cmd_config = config
@@ -86,37 +67,7 @@ fn cmd_exec(command: &str, args: &[String]) -> Result<()> {
     std::process::exit(exit_code)
 }
 
-fn cmd_check(path: Option<String>, silent: bool) -> Result<()> {
-    let config_path = if let Some(p) = path {
-        std::path::PathBuf::from(p)
-    } else {
-        ConfigLoader::find_config()?.context("No .shwrap configuration found")?
-    };
-
-    let config = config::BwrapConfig::from_file(&config_path)?;
-
-    if silent {
-        return Ok(());
-    }
-
-    println!("Configuration is valid: {:?}", config_path);
-    println!("Found {} command(s)", config.commands.len());
-
-    // Sort commands alphabetically
-    let mut commands: Vec<_> = config.commands.iter().collect();
-    commands.sort_by_key(|(name, _)| *name);
-
-    for (name, cmd_config) in commands {
-        match cmd_config.enabled {
-            true => println!("  - {}", name),
-            false => println!("  - {} (disabled)", name),
-        }
-    }
-
-    Ok(())
-}
-
-fn cmd_list(simple: bool) -> Result<()> {
+fn command_list_cmd(simple: bool) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     // Sort commands alphabetically
@@ -147,17 +98,7 @@ fn cmd_list(simple: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_which() -> Result<()> {
-    if let Some(config_path) = ConfigLoader::find_config()? {
-        println!("{}", config_path.display());
-    } else {
-        println!("No .shwrap configuration found");
-    }
-
-    Ok(())
-}
-
-fn cmd_show(command: &str, args: &[String]) -> Result<()> {
+fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     let cmd_config = config
@@ -173,7 +114,72 @@ fn cmd_show(command: &str, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn cmd_shell_hook(shell_name: &str) -> Result<()> {
+fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
+    let config_path = if let Some(p) = path {
+        std::path::PathBuf::from(p)
+    } else {
+        ConfigLoader::find_config()?.context("No .shwrap configuration found")?
+    };
+
+    let config = config::BwrapConfig::from_file(&config_path)?;
+
+    if silent {
+        return Ok(());
+    }
+
+    println!("Configuration is valid: {:?}", config_path);
+    println!("Found {} command(s)", config.commands.len());
+
+    // Sort commands alphabetically
+    let mut commands: Vec<_> = config.commands.iter().collect();
+    commands.sort_by_key(|(name, _)| *name);
+
+    for (name, cmd_config) in commands {
+        match cmd_config.enabled {
+            true => println!("  - {}", name),
+            false => println!("  - {} (disabled)", name),
+        }
+    }
+
+    Ok(())
+}
+
+fn config_init_cmd(template: Option<String>) -> Result<()> {
+    use std::fs;
+
+    let template_content = match template.as_deref() {
+        Some("nodejs") => include_str!("../templates/nodejs.yaml"),
+        Some("python") => include_str!("../templates/python.yaml"),
+        Some("ruby") => include_str!("../templates/ruby.yaml"),
+        Some("go") => include_str!("../templates/go.yaml"),
+        Some("rust") => include_str!("../templates/rust.yaml"),
+        None => include_str!("../templates/default.yaml"),
+        Some(other) => bail!("Unknown template: {}", other),
+    };
+
+    let config_path = ".shwrap";
+    if std::path::Path::new(config_path).exists() {
+        bail!(".shwrap file already exists in current directory");
+    }
+
+    fs::write(config_path, template_content).context("Failed to write .shwrap file")?;
+
+    println!("Created .shwrap configuration file");
+
+    Ok(())
+}
+
+fn config_which_cmd() -> Result<()> {
+    if let Some(config_path) = ConfigLoader::find_config()? {
+        println!("{}", config_path.display());
+    } else {
+        println!("No .shwrap configuration found");
+    }
+
+    Ok(())
+}
+
+fn shell_hook_get_cmd(shell_name: &str) -> Result<()> {
     let shell =
         Shell::from_str(shell_name).context(format!("Unsupported shell: {}", shell_name))?;
 

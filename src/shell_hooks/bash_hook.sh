@@ -19,7 +19,7 @@ __shwrap_log() {
 # Wrap command execution
 __shwrap_wrap_command() {
   __shwrap_log "Executing wrapped command: $@"
-  shwrap exec "$@"
+  shwrap command exec "$@"
 }
 
 # Set all wrapped commands
@@ -38,7 +38,7 @@ __shwrap_set_wrapped_commands() {
 
 # Refresh SHWRAP_WRAPPED_COMMANDS variable
 __shwrap_refresh_wrapped_commands() {
-  SHWRAP_WRAPPED_COMMANDS=$(shwrap list --simple 2>/dev/null)
+  SHWRAP_WRAPPED_COMMANDS=$(shwrap command list --simple 2>/dev/null)
 }
 
 # Unset all wrapped commands
