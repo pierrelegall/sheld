@@ -38,7 +38,7 @@ fn test_full_config_loading_and_execution() {
     let config = BwrapConfig::from_file(&config_path).unwrap();
 
     // Verify node command
-    let node_cmd = config.get_command_config("node").unwrap();
+    let node_cmd = config.get_command("node").unwrap();
     assert!(node_cmd.enabled);
     assert_eq!(node_cmd.extends, Some("base".to_string()));
 
@@ -49,7 +49,7 @@ fn test_full_config_loading_and_execution() {
     assert_eq!(merged.env.get("NODE_ENV"), Some(&"production".to_string()));
 
     // Verify python command is disabled
-    let python_cmd = config.get_command_config("python").unwrap();
+    let python_cmd = config.get_command("python").unwrap();
     assert!(!python_cmd.enabled);
 }
 
@@ -122,7 +122,7 @@ fn test_config_with_all_features() {
     "})
     .unwrap();
 
-    let test_cmd = config.get_command_config("test").unwrap();
+    let test_cmd = config.get_command("test").unwrap();
     let merged = config.merge_with_base(test_cmd);
 
     // Verify all fields are populated correctly
@@ -173,15 +173,15 @@ fn test_multiple_commands_in_config() {
     assert_eq!(commands.len(), 3);
 
     // Test each command
-    let node = config.get_command_config("node").unwrap();
+    let node = config.get_command("node").unwrap();
     assert!(node.enabled);
     assert_eq!(node.share, vec!["user", "network"]);
 
-    let python = config.get_command_config("python").unwrap();
+    let python = config.get_command("python").unwrap();
     assert!(python.enabled);
     assert_eq!(python.share, vec!["user"]);
 
-    let ruby = config.get_command_config("ruby").unwrap();
+    let ruby = config.get_command("ruby").unwrap();
     assert!(!ruby.enabled);
 }
 
@@ -240,7 +240,7 @@ fn test_empty_commands_section() {
 
     let commands = config.get_commands();
     assert_eq!(commands.len(), 0);
-    assert!(config.get_command_config("any").is_none());
+    assert!(config.get_command("any").is_none());
 }
 
 #[test]
@@ -286,13 +286,13 @@ fn test_custom_template_name() {
     .unwrap();
 
     // Test node with minimal template
-    let node = config.get_command_config("node").unwrap();
+    let node = config.get_command("node").unwrap();
     let merged_node = config.merge_with_template(node);
     assert_eq!(merged_node.share, vec!["user", "network"]);
     assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
 
     // Test python with strict template
-    let python = config.get_command_config("python").unwrap();
+    let python = config.get_command("python").unwrap();
     let merged_python = config.merge_with_template(python);
     assert_eq!(merged_python.share, vec!["user"]);
     assert_eq!(merged_python.ro_bind, vec!["/usr"]);
@@ -312,7 +312,7 @@ fn test_unshare_all_by_default_integration() {
     "})
     .unwrap();
 
-    let isolated_cmd = config.get_command_config("isolated").unwrap();
+    let isolated_cmd = config.get_command("isolated").unwrap();
     let builder = BwrapBuilder::new(isolated_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
@@ -342,7 +342,7 @@ fn test_share_specific_namespaces_integration() {
     "})
     .unwrap();
 
-    let network_cmd = config.get_command_config("network_enabled").unwrap();
+    let network_cmd = config.get_command("network_enabled").unwrap();
     let builder = BwrapBuilder::new(network_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
@@ -375,7 +375,7 @@ fn test_share_multiple_namespaces_integration() {
     "})
     .unwrap();
 
-    let relaxed_cmd = config.get_command_config("relaxed").unwrap();
+    let relaxed_cmd = config.get_command("relaxed").unwrap();
     let builder = BwrapBuilder::new(relaxed_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
@@ -411,7 +411,7 @@ fn test_share_all_namespaces_integration() {
     "})
     .unwrap();
 
-    let no_isolation_cmd = config.get_command_config("no_isolation").unwrap();
+    let no_isolation_cmd = config.get_command("no_isolation").unwrap();
     let builder = BwrapBuilder::new(no_isolation_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
@@ -446,7 +446,7 @@ fn test_template_with_share_inheritance() {
     "})
     .unwrap();
 
-    let app_cmd = config.get_command_config("app").unwrap();
+    let app_cmd = config.get_command("app").unwrap();
     let merged = config.merge_with_template(app_cmd);
     let builder = BwrapBuilder::new(merged);
     let cmd_line = builder.show("echo", &["test".to_string()]);

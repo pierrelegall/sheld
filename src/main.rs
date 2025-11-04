@@ -52,7 +52,7 @@ fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     let cmd_config = config
-        .get_command_config(command)
+        .get_command(command)
         .context(format!("No configuration found for command '{}'", command))?;
 
     if !cmd_config.enabled {
@@ -103,7 +103,7 @@ fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     let cmd_config = config
-        .get_command_config(command)
+        .get_command(command)
         .context(format!("No configuration found for command '{}'", command))?;
 
     let merged_config = config.merge_with_base(cmd_config);

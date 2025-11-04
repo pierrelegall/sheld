@@ -109,7 +109,43 @@ impl BwrapConfig {
         Ok(config)
     }
 
-    /// Get all commands (filtering by type: command)
+    /// Get all entries
+    pub fn get_entries(&self) -> HashMap<String, CommandConfig> {
+        self.entries
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .collect()
+    }
+
+    /// Get entries with constrains
+    pub fn get_entries_with<F>(&self, predicate: F) -> HashMap<String, CommandConfig>
+    where
+        F: Fn(&Entry) -> bool,
+    {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| predicate(entry))
+            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .collect()
+    }
+
+    /// Get a specific command configuration
+    pub fn get_entry(&self, command: &str) -> Option<CommandConfig> {
+        self.entries.get(command).map(|entry| entry.clone().into())
+    }
+
+    /// Get an entry with constrains
+    pub fn get_entry_with<F>(&self, name: &str, predicate: F) -> Option<CommandConfig>
+    where
+        F: Fn(&Entry) -> bool,
+    {
+        self.entries
+            .get(name)
+            .filter(|entry| predicate(entry))
+            .map(|entry| entry.clone().into())
+    }
+
+    /// Get all command entries (filtering by type: command)
     pub fn get_commands(&self) -> HashMap<String, CommandConfig> {
         self.entries
             .iter()
@@ -119,18 +155,28 @@ impl BwrapConfig {
     }
 
     /// Get a specific command configuration
-    pub fn get_command_config(&self, command: &str) -> Option<CommandConfig> {
+    pub fn get_command(&self, name: &str) -> Option<CommandConfig> {
         self.entries
-            .get(command)
+            .get(name)
             .filter(|entry| entry.entry_type == EntryType::Command)
             .map(|entry| entry.clone().into())
     }
 
-    /// Get a model/template by name
-    fn get_model(&self, name: &str) -> Option<&Entry> {
+    /// Get all model entries (filtering by type: command)
+    pub fn get_models(&self) -> HashMap<String, CommandConfig> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| entry.entry_type == EntryType::Model)
+            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .collect()
+    }
+
+    /// Get a model entry by name
+    fn get_model(&self, name: &str) -> Option<CommandConfig> {
         self.entries
             .get(name)
             .filter(|entry| entry.entry_type == EntryType::Model)
+            .map(|entry| entry.clone().into())
     }
 
     /// Merge command config with its template (if extends is set)
@@ -207,13 +253,13 @@ mod tests {
         "})
         .unwrap();
 
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.extends, Some("base".to_string()));
         assert_eq!(node_cmd.bind, vec!["~/.npm:~/.npm"]);
     }
 
     #[test]
-    fn test_get_command_config() {
+    fn test_get_command() {
         let config = BwrapConfig::from_yaml(indoc! {"
             node:
               enabled: true
@@ -222,9 +268,9 @@ mod tests {
         "})
         .unwrap();
 
-        assert!(config.get_command_config("node").is_some());
-        assert!(config.get_command_config("python").is_some());
-        assert!(config.get_command_config("ruby").is_none());
+        assert!(config.get_command("node").is_some());
+        assert!(config.get_command("python").is_some());
+        assert!(config.get_command("ruby").is_none());
     }
 
     #[test]
@@ -243,7 +289,7 @@ mod tests {
                 - ~/.npm:~/.npm
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         let merged = config.merge_with_base(node_cmd);
 
         // Should have both base and command-specific settings
@@ -265,7 +311,7 @@ mod tests {
                 - ~/.npm:~/.npm
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         let merged = config.merge_with_base(node_cmd.clone());
 
         // Should not merge base since extends is not set
@@ -296,7 +342,7 @@ mod tests {
                 - user
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         // enabled should default to true
         assert!(node_cmd.enabled);
     }
@@ -310,7 +356,7 @@ mod tests {
                 - user
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         assert!(!node_cmd.enabled);
     }
 
@@ -325,7 +371,7 @@ mod tests {
                 - DEBUG
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
 
         assert_eq!(node_cmd.env.len(), 2);
         assert_eq!(
@@ -344,7 +390,7 @@ mod tests {
                 - /var/tmp
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.tmpfs, vec!["/tmp", "/var/tmp"]);
     }
 
@@ -357,7 +403,7 @@ mod tests {
                 - /dev/random
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.dev_bind, vec!["/dev/null", "/dev/random"]);
     }
 
@@ -392,14 +438,14 @@ mod tests {
         assert_eq!(commands.len(), 2);
 
         // Test node with minimal template
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.extends, Some("minimal".to_string()));
         let merged_node = config.merge_with_template(node_cmd);
         assert_eq!(merged_node.share, vec!["user", "network"]);
         assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
 
         // Test python with strict template
-        let python_cmd = config.get_command_config("python").unwrap();
+        let python_cmd = config.get_command("python").unwrap();
         assert_eq!(python_cmd.extends, Some("strict".to_string()));
         let merged_python = config.merge_with_template(python_cmd);
         assert_eq!(merged_python.share, vec!["user"]);
@@ -421,11 +467,178 @@ mod tests {
                 - ~/.npm:~/.npm
         "})
         .unwrap();
-        let node_cmd = config.get_command_config("node").unwrap();
+        let node_cmd = config.get_command("node").unwrap();
         let merged = config.merge_with_template(node_cmd.clone());
 
         // Should not merge anything, just return the original command config
         assert_eq!(merged.share, node_cmd.share);
         assert_eq!(merged.bind, node_cmd.bind);
+    }
+
+    #[test]
+    fn test_get_entries_with() {
+        let config = BwrapConfig::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+
+            node:
+              enabled: true
+              extends: base
+              bind:
+                - ~/.npm:~/.npm
+
+            python:
+              enabled: false
+              extends: base
+              bind:
+                - ~/.local:~/.local
+
+            rust:
+              enabled: true
+              extends: base
+              share:
+                - network
+        "})
+        .unwrap();
+
+        // Filter enabled commands only
+        let enabled = config.get_entries_with(|e| e.enabled && e.entry_type == EntryType::Command);
+        assert_eq!(enabled.len(), 2);
+        assert!(enabled.contains_key("node"));
+        assert!(enabled.contains_key("rust"));
+        assert!(!enabled.contains_key("python"));
+        assert!(!enabled.contains_key("base"));
+
+        // Filter disabled commands
+        let disabled =
+            config.get_entries_with(|e| !e.enabled && e.entry_type == EntryType::Command);
+        assert_eq!(disabled.len(), 1);
+        assert!(disabled.contains_key("python"));
+
+        // Filter models
+        let models = config.get_entries_with(|e| e.entry_type == EntryType::Model);
+        assert_eq!(models.len(), 1);
+        assert!(models.contains_key("base"));
+
+        // Filter entries with network share
+        let with_network = config.get_entries_with(|e| e.share.contains(&"network".to_string()));
+        assert_eq!(with_network.len(), 1);
+        assert!(with_network.contains_key("rust"));
+
+        // Filter entries that extend base
+        let extends_base = config.get_entries_with(|e| e.extends == Some("base".to_string()));
+        assert_eq!(extends_base.len(), 3);
+
+        // Complex filter: enabled commands with bind
+        let enabled_with_bind = config.get_entries_with(|e| {
+            e.enabled && e.entry_type == EntryType::Command && !e.bind.is_empty()
+        });
+        assert_eq!(enabled_with_bind.len(), 1);
+        assert!(enabled_with_bind.contains_key("node"));
+        assert!(!enabled_with_bind.contains_key("rust")); // rust has no bind
+    }
+
+    #[test]
+    fn test_get_entry_with() {
+        let config = BwrapConfig::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+
+            node:
+              enabled: true
+              extends: base
+              share:
+                - network
+              bind:
+                - ~/.npm:~/.npm
+
+            python:
+              enabled: false
+              extends: base
+        "})
+        .unwrap();
+
+        // Get entry only if enabled
+        let node_enabled = config.get_entry_with("node", |e| e.enabled);
+        assert!(node_enabled.is_some());
+        assert!(node_enabled.unwrap().enabled);
+
+        let python_enabled = config.get_entry_with("python", |e| e.enabled);
+        assert!(python_enabled.is_none());
+
+        // Get entry only if it's a command
+        let node_cmd = config.get_entry_with("node", |e| e.entry_type == EntryType::Command);
+        assert!(node_cmd.is_some());
+
+        let base_cmd = config.get_entry_with("base", |e| e.entry_type == EntryType::Command);
+        assert!(base_cmd.is_none());
+
+        // Get entry only if it's a model
+        let base_model = config.get_entry_with("base", |e| e.entry_type == EntryType::Model);
+        assert!(base_model.is_some());
+
+        // Get entry with network share
+        let node_network =
+            config.get_entry_with("node", |e| e.share.contains(&"network".to_string()));
+        assert!(node_network.is_some());
+
+        let python_network =
+            config.get_entry_with("python", |e| e.share.contains(&"network".to_string()));
+        assert!(python_network.is_none());
+
+        // Complex filter: enabled command with bind
+        let node_complex = config.get_entry_with("node", |e| {
+            e.enabled && e.entry_type == EntryType::Command && !e.bind.is_empty()
+        });
+        assert!(node_complex.is_some());
+
+        let python_complex = config.get_entry_with("python", |e| {
+            e.enabled && e.entry_type == EntryType::Command && !e.bind.is_empty()
+        });
+        assert!(python_complex.is_none());
+
+        // Non-existent entry
+        let nonexistent = config.get_entry_with("nonexistent", |_| true);
+        assert!(nonexistent.is_none());
+    }
+
+    #[test]
+    fn test_get_entries_with_empty_results() {
+        let config = BwrapConfig::from_yaml(indoc! {"
+            node:
+              enabled: true
+        "})
+        .unwrap();
+
+        // Filter that matches nothing
+        let no_models = config.get_entries_with(|e| e.entry_type == EntryType::Model);
+        assert_eq!(no_models.len(), 0);
+
+        let no_network = config.get_entries_with(|e| e.share.contains(&"network".to_string()));
+        assert_eq!(no_network.len(), 0);
+    }
+
+    #[test]
+    fn test_get_entries_with_all_match() {
+        let config = BwrapConfig::from_yaml(indoc! {"
+            node:
+              enabled: true
+            python:
+              enabled: true
+            rust:
+              enabled: true
+        "})
+        .unwrap();
+
+        // Filter that matches everything
+        let all = config.get_entries_with(|_| true);
+        assert_eq!(all.len(), 3);
+
+        let all_enabled = config.get_entries_with(|e| e.enabled);
+        assert_eq!(all_enabled.len(), 3);
     }
 }
