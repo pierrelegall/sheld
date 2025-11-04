@@ -223,7 +223,9 @@ mod tests {
     #[test]
     fn test_build_args_env() {
         let mut config = create_test_config();
-        config.env.insert("NODE_ENV".to_string(), "production".to_string());
+        config
+            .env
+            .insert("NODE_ENV".to_string(), "production".to_string());
         config.env.insert("DEBUG".to_string(), "true".to_string());
 
         let builder = BwrapBuilder::new(config);
@@ -283,7 +285,14 @@ mod tests {
     fn test_show_command_with_multiple_args() {
         let config = create_test_config();
         let builder = BwrapBuilder::new(config);
-        let cmd = builder.show("git", &["commit".to_string(), "-m".to_string(), "message".to_string()]);
+        let cmd = builder.show(
+            "git",
+            &[
+                "commit".to_string(),
+                "-m".to_string(),
+                "message".to_string(),
+            ],
+        );
 
         assert!(cmd.contains("git"));
         assert!(cmd.contains("commit"));
@@ -392,5 +401,4 @@ mod tests {
         assert!(!args.contains(&"--unshare-uts".to_string()));
         assert!(!args.contains(&"--unshare-cgroup".to_string()));
     }
-
 }
