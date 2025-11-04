@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use std::env;
 use std::path::{Path, PathBuf};
 
-use super::BwrapConfig;
+use super::Config;
 
 pub struct ConfigLoader;
 
@@ -64,9 +64,9 @@ impl ConfigLoader {
     }
 
     /// Load config from the found path
-    pub fn load() -> Result<Option<BwrapConfig>> {
+    pub fn load() -> Result<Option<Config>> {
         if let Some(path) = Self::find_config()? {
-            let config = BwrapConfig::from_file(&path)?;
+            let config = Config::from_file(&path)?;
             Ok(Some(config))
         } else {
             Ok(None)

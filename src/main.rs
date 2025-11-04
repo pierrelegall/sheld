@@ -9,7 +9,7 @@ use clap::Parser;
 
 use cli::{Cli, CommandAction, ConfigAction, ShellHookAction, Subject};
 use shell_hooks::Shell;
-use shwrap::bwrap::BwrapBuilder;
+use shwrap::bwrap::WrappedCommandBuilder;
 use shwrap::config::{self, loader::ConfigLoader};
 
 fn main() -> Result<()> {
@@ -60,7 +60,7 @@ fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
     }
 
     let merged_config = config.merge_with_base(cmd_config);
-    let builder = BwrapBuilder::new(merged_config);
+    let builder = WrappedCommandBuilder::new(merged_config);
 
     let exit_code = builder.exec(command, args)?;
 
@@ -107,7 +107,7 @@ fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
         .context(format!("No configuration found for command '{}'", command))?;
 
     let merged_config = config.merge_with_base(cmd_config);
-    let builder = BwrapBuilder::new(merged_config);
+    let builder = WrappedCommandBuilder::new(merged_config);
 
     let cmd_line = builder.show(command, args);
     println!("{}", cmd_line);
@@ -122,7 +122,7 @@ fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
         ConfigLoader::find_config()?.context("No .shwrap configuration found")?
     };
 
-    let config = config::BwrapConfig::from_file(&config_path)?;
+    let config = config::Config::from_file(&config_path)?;
 
     if silent {
         return Ok(());

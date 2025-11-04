@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use indoc::indoc;
+use shwrap::config::EntryType;
 use std::fs;
 use tempfile::TempDir;
 
@@ -34,8 +35,8 @@ fn test_full_config_loading_and_execution() {
     fs::write(&config_path, yaml).unwrap();
 
     // Load and verify config
-    use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_file(&config_path).unwrap();
+    use shwrap::config::Config;
+    let config = Config::from_file(&config_path).unwrap();
 
     // Verify node command
     let node_cmd = config.get_command("node").unwrap();
@@ -55,11 +56,12 @@ fn test_full_config_loading_and_execution() {
 
 #[test]
 fn test_bwrap_builder_integration() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::CommandConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Entry;
     use std::collections::HashMap;
 
-    let mut config = CommandConfig {
+    let mut config = Entry {
+        entry_type: EntryType::Command,
         enabled: true,
         extends: None,
         share: vec![],
@@ -72,7 +74,7 @@ fn test_bwrap_builder_integration() {
     };
     config.env.insert("TEST".to_string(), "value".to_string());
 
-    let builder = BwrapBuilder::new(config);
+    let builder = WrappedCommandBuilder::new(config);
     let args = builder.build_args();
 
     // All namespaces unshared by default
@@ -94,8 +96,8 @@ fn test_bwrap_builder_integration() {
 
 #[test]
 fn test_config_with_all_features() {
-    use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_yaml(indoc! {"
+    use shwrap::config::Config;
+    let config = Config::from_yaml(indoc! {"
         base:
           type: model
           share:
@@ -136,8 +138,8 @@ fn test_config_with_all_features() {
     assert_eq!(merged.unset_env.len(), 2);
 
     // Build and verify bwrap args
-    use shwrap::bwrap::BwrapBuilder;
-    let builder = BwrapBuilder::new(merged);
+    use shwrap::bwrap::WrappedCommandBuilder;
+    let builder = WrappedCommandBuilder::new(merged);
     let args = builder.build_args();
 
     // User is shared, so no --unshare-user
@@ -153,8 +155,8 @@ fn test_config_with_all_features() {
 
 #[test]
 fn test_multiple_commands_in_config() {
-    use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_yaml(indoc! {"
+    use shwrap::config::Config;
+    let config = Config::from_yaml(indoc! {"
         node:
           enabled: true
           share:
@@ -187,27 +189,28 @@ fn test_multiple_commands_in_config() {
 
 #[test]
 fn test_config_error_handling() {
-    use shwrap::config::BwrapConfig;
+    use shwrap::config::Config;
 
     // Invalid YAML should error
-    let result = BwrapConfig::from_yaml(indoc! {"
+    let result = Config::from_yaml(indoc! {"
         node
           this is not valid yaml
     "});
     assert!(result.is_err());
 
     // Non-existent file should error
-    let result = BwrapConfig::from_file("/nonexistent/path/.shwrap");
+    let result = Config::from_file("/nonexistent/path/.shwrap");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_command_show_formatting() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::CommandConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Entry;
     use std::collections::HashMap;
 
-    let config = CommandConfig {
+    let config = Entry {
+        entry_type: EntryType::Command,
         enabled: true,
         extends: None,
         share: vec![],
@@ -219,7 +222,7 @@ fn test_command_show_formatting() {
         unset_env: vec![],
     };
 
-    let builder = BwrapBuilder::new(config);
+    let builder = WrappedCommandBuilder::new(config);
     let cmd = builder.show("ls", &["-la".to_string(), "/tmp".to_string()]);
 
     // Verify command format
@@ -235,8 +238,8 @@ fn test_command_show_formatting() {
 
 #[test]
 fn test_empty_commands_section() {
-    use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_yaml("").unwrap();
+    use shwrap::config::Config;
+    let config = Config::from_yaml("").unwrap();
 
     let commands = config.get_commands();
     assert_eq!(commands.len(), 0);
@@ -245,8 +248,8 @@ fn test_empty_commands_section() {
 
 #[test]
 fn test_base_without_commands() {
-    use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_yaml(indoc! {"
+    use shwrap::config::Config;
+    let config = Config::from_yaml(indoc! {"
         base:
           type: model
           share:
@@ -260,8 +263,8 @@ fn test_base_without_commands() {
 
 #[test]
 fn test_custom_template_name() {
-    use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_yaml(indoc! {"
+    use shwrap::config::Config;
+    let config = Config::from_yaml(indoc! {"
         minimal:
           type: model
           share:
@@ -300,11 +303,11 @@ fn test_custom_template_name() {
 
 #[test]
 fn test_unshare_all_by_default_integration() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::BwrapConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Config;
 
     // Test 1: Empty config should unshare all namespaces
-    let config = BwrapConfig::from_yaml(indoc! {"
+    let config = Config::from_yaml(indoc! {"
         isolated:
           enabled: true
           ro_bind:
@@ -313,7 +316,7 @@ fn test_unshare_all_by_default_integration() {
     .unwrap();
 
     let isolated_cmd = config.get_command("isolated").unwrap();
-    let builder = BwrapBuilder::new(isolated_cmd);
+    let builder = WrappedCommandBuilder::new(isolated_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // All namespaces should be unshared
@@ -327,11 +330,11 @@ fn test_unshare_all_by_default_integration() {
 
 #[test]
 fn test_share_specific_namespaces_integration() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::BwrapConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Config;
 
     // Test 2: Share only user and network namespaces
-    let config = BwrapConfig::from_yaml(indoc! {"
+    let config = Config::from_yaml(indoc! {"
         network_enabled:
           enabled: true
           share:
@@ -343,7 +346,7 @@ fn test_share_specific_namespaces_integration() {
     .unwrap();
 
     let network_cmd = config.get_command("network_enabled").unwrap();
-    let builder = BwrapBuilder::new(network_cmd);
+    let builder = WrappedCommandBuilder::new(network_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User and network should NOT be unshared
@@ -359,11 +362,11 @@ fn test_share_specific_namespaces_integration() {
 
 #[test]
 fn test_share_multiple_namespaces_integration() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::BwrapConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Config;
 
     // Test 3: Share user, network, and ipc namespaces
-    let config = BwrapConfig::from_yaml(indoc! {"
+    let config = Config::from_yaml(indoc! {"
         relaxed:
           enabled: true
           share:
@@ -376,7 +379,7 @@ fn test_share_multiple_namespaces_integration() {
     .unwrap();
 
     let relaxed_cmd = config.get_command("relaxed").unwrap();
-    let builder = BwrapBuilder::new(relaxed_cmd);
+    let builder = WrappedCommandBuilder::new(relaxed_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User, network, and ipc should NOT be unshared
@@ -392,11 +395,11 @@ fn test_share_multiple_namespaces_integration() {
 
 #[test]
 fn test_share_all_namespaces_integration() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::BwrapConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Config;
 
     // Test 4: Share all namespaces (no isolation)
-    let config = BwrapConfig::from_yaml(indoc! {"
+    let config = Config::from_yaml(indoc! {"
         no_isolation:
           enabled: true
           share:
@@ -412,7 +415,7 @@ fn test_share_all_namespaces_integration() {
     .unwrap();
 
     let no_isolation_cmd = config.get_command("no_isolation").unwrap();
-    let builder = BwrapBuilder::new(no_isolation_cmd);
+    let builder = WrappedCommandBuilder::new(no_isolation_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // No namespaces should be unshared
@@ -426,11 +429,11 @@ fn test_share_all_namespaces_integration() {
 
 #[test]
 fn test_template_with_share_inheritance() {
-    use shwrap::bwrap::BwrapBuilder;
-    use shwrap::config::BwrapConfig;
+    use shwrap::bwrap::WrappedCommandBuilder;
+    use shwrap::config::Config;
 
     // Test 5: Template inheritance with share
-    let config = BwrapConfig::from_yaml(indoc! {"
+    let config = Config::from_yaml(indoc! {"
         base:
           type: model
           share:
@@ -448,7 +451,7 @@ fn test_template_with_share_inheritance() {
 
     let app_cmd = config.get_command("app").unwrap();
     let merged = config.merge_with_template(app_cmd);
-    let builder = BwrapBuilder::new(merged);
+    let builder = WrappedCommandBuilder::new(merged);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User and network should NOT be unshared (inherited + added)

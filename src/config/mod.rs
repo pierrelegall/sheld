@@ -7,7 +7,7 @@ use std::path::Path;
 pub mod loader;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct BwrapConfig {
+pub struct Config {
     #[serde(flatten)]
     pub entries: HashMap<String, Entry>,
 }
@@ -49,52 +49,13 @@ pub struct Entry {
     pub unset_env: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommandConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub extends: Option<String>,
-    #[serde(default)]
-    pub share: Vec<String>,
-    #[serde(default)]
-    pub bind: Vec<String>,
-    #[serde(default)]
-    pub ro_bind: Vec<String>,
-    #[serde(default)]
-    pub dev_bind: Vec<String>,
-    #[serde(default)]
-    pub tmpfs: Vec<String>,
-    #[serde(default)]
-    pub env: HashMap<String, String>,
-    #[serde(default)]
-    pub unset_env: Vec<String>,
-}
-
 fn default_enabled() -> bool {
     true
 }
 
-impl From<Entry> for CommandConfig {
-    fn from(entry: Entry) -> Self {
-        CommandConfig {
-            enabled: entry.enabled,
-            extends: entry.extends,
-            share: entry.share,
-            bind: entry.bind,
-            ro_bind: entry.ro_bind,
-            dev_bind: entry.dev_bind,
-            tmpfs: entry.tmpfs,
-            env: entry.env,
-            unset_env: entry.unset_env,
-        }
-    }
-}
-
-impl BwrapConfig {
+impl Config {
     pub fn from_yaml(yaml: &str) -> Result<Self> {
-        let config: BwrapConfig =
-            serde_yaml::from_str(yaml).context("Failed to parse YAML config")?;
+        let config: Config = serde_yaml::from_str(yaml).context("Failed to parse YAML config")?;
 
         Ok(config)
     }
@@ -103,14 +64,14 @@ impl BwrapConfig {
         let yaml = fs::read_to_string(path.as_ref())
             .context(format!("Failed to read config file: {:?}", path.as_ref()))?;
 
-        let config: BwrapConfig = serde_yaml::from_str(&yaml)
+        let config: Config = serde_yaml::from_str(&yaml)
             .context(format!("Failed to parse YAML config {:?}", path.as_ref()))?;
 
         Ok(config)
     }
 
     /// Get all entries
-    pub fn get_entries(&self) -> HashMap<String, CommandConfig> {
+    pub fn get_entries(&self) -> HashMap<String, Entry> {
         self.entries
             .iter()
             .map(|(name, entry)| (name.clone(), entry.clone().into()))
@@ -118,7 +79,7 @@ impl BwrapConfig {
     }
 
     /// Get entries with constrains
-    pub fn get_entries_with<F>(&self, predicate: F) -> HashMap<String, CommandConfig>
+    pub fn get_entries_with<F>(&self, predicate: F) -> HashMap<String, Entry>
     where
         F: Fn(&Entry) -> bool,
     {
@@ -130,12 +91,12 @@ impl BwrapConfig {
     }
 
     /// Get a specific command configuration
-    pub fn get_entry(&self, command: &str) -> Option<CommandConfig> {
+    pub fn get_entry(&self, command: &str) -> Option<Entry> {
         self.entries.get(command).map(|entry| entry.clone().into())
     }
 
     /// Get an entry with constrains
-    pub fn get_entry_with<F>(&self, name: &str, predicate: F) -> Option<CommandConfig>
+    pub fn get_entry_with<F>(&self, name: &str, predicate: F) -> Option<Entry>
     where
         F: Fn(&Entry) -> bool,
     {
@@ -146,7 +107,7 @@ impl BwrapConfig {
     }
 
     /// Get all command entries (filtering by type: command)
-    pub fn get_commands(&self) -> HashMap<String, CommandConfig> {
+    pub fn get_commands(&self) -> HashMap<String, Entry> {
         self.entries
             .iter()
             .filter(|(_, entry)| entry.entry_type == EntryType::Command)
@@ -155,7 +116,7 @@ impl BwrapConfig {
     }
 
     /// Get a specific command configuration
-    pub fn get_command(&self, name: &str) -> Option<CommandConfig> {
+    pub fn get_command(&self, name: &str) -> Option<Entry> {
         self.entries
             .get(name)
             .filter(|entry| entry.entry_type == EntryType::Command)
@@ -163,7 +124,7 @@ impl BwrapConfig {
     }
 
     /// Get all model entries (filtering by type: command)
-    pub fn get_models(&self) -> HashMap<String, CommandConfig> {
+    pub fn get_models(&self) -> HashMap<String, Entry> {
         self.entries
             .iter()
             .filter(|(_, entry)| entry.entry_type == EntryType::Model)
@@ -172,7 +133,7 @@ impl BwrapConfig {
     }
 
     /// Get a model entry by name
-    fn get_model(&self, name: &str) -> Option<CommandConfig> {
+    fn get_model(&self, name: &str) -> Option<Entry> {
         self.entries
             .get(name)
             .filter(|entry| entry.entry_type == EntryType::Model)
@@ -180,7 +141,7 @@ impl BwrapConfig {
     }
 
     /// Merge command config with its template (if extends is set)
-    pub fn merge_with_template(&self, mut cmd_config: CommandConfig) -> CommandConfig {
+    pub fn merge_with_template(&self, mut cmd_config: Entry) -> Entry {
         if let Some(extends) = &cmd_config.extends {
             if let Some(template) = self.get_model(extends) {
                 // Merge template config into command config
@@ -201,7 +162,7 @@ impl BwrapConfig {
     }
 
     // Deprecated: use merge_with_template instead
-    pub fn merge_with_base(&self, cmd_config: CommandConfig) -> CommandConfig {
+    pub fn merge_with_base(&self, cmd_config: Entry) -> Entry {
         self.merge_with_template(cmd_config)
     }
 }
@@ -215,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_parse_basic_config() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               enabled: true
               share:
@@ -237,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_parse_config_with_base() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             base:
               type: model
               share:
@@ -260,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_get_command() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               enabled: true
             python:
@@ -275,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_merge_with_base() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             base:
               type: model
               share:
@@ -300,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_merge_without_extends() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             base:
               type: model
               share:
@@ -328,7 +289,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(yaml.as_bytes()).unwrap();
 
-        let config = BwrapConfig::from_file(temp_file.path()).unwrap();
+        let config = Config::from_file(temp_file.path()).unwrap();
         let commands = config.get_commands();
         assert_eq!(commands.len(), 1);
         assert!(commands.contains_key("test"));
@@ -336,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_default_enabled() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               share:
                 - user
@@ -349,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_disabled_command() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               enabled: false
               share:
@@ -362,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_env_variables() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               env:
                 NODE_ENV: production
@@ -383,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_tmpfs() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               tmpfs:
                 - /tmp
@@ -396,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_dev_bind() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               dev_bind:
                 - /dev/null
@@ -409,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_custom_template_names() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             minimal:
               type: model
               share:
@@ -455,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_nonexistent_template() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             base:
               type: model
               share:
@@ -477,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_get_entries_with() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             base:
               type: model
               share:
@@ -542,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_get_entry_with() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             base:
               type: model
               share:
@@ -608,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_get_entries_with_empty_results() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               enabled: true
         "})
@@ -624,7 +585,7 @@ mod tests {
 
     #[test]
     fn test_get_entries_with_all_match() {
-        let config = BwrapConfig::from_yaml(indoc! {"
+        let config = Config::from_yaml(indoc! {"
             node:
               enabled: true
             python:

@@ -1,16 +1,16 @@
 use anyhow::Result;
 use std::process::Command;
 
-use crate::config::CommandConfig;
+use crate::config::Entry;
 
 const NAMESPACES: [&str; 6] = ["user", "pid", "network", "ipc", "uts", "cgroup"];
 
-pub struct BwrapBuilder {
-    config: CommandConfig,
+pub struct WrappedCommandBuilder {
+    config: Entry,
 }
 
-impl BwrapBuilder {
-    pub fn new(config: CommandConfig) -> Self {
+impl WrappedCommandBuilder {
+    pub fn new(config: Entry) -> Self {
         Self { config }
     }
 
@@ -117,11 +117,14 @@ impl BwrapBuilder {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::EntryType;
+
     use super::*;
     use std::collections::HashMap;
 
-    fn create_test_config() -> CommandConfig {
-        CommandConfig {
+    fn create_test_config() -> Entry {
+        Entry {
+            entry_type: EntryType::Command,
             enabled: true,
             extends: None,
             share: vec![],
@@ -139,7 +142,7 @@ mod tests {
         let config = create_test_config();
         // Empty config = all namespaces unshared by default
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--unshare-net".to_string()));
@@ -156,7 +159,7 @@ mod tests {
         // share now controls namespace sharing, not filesystem paths
         config.share = vec!["network".to_string(), "user".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Network and user should NOT be unshared
@@ -175,7 +178,7 @@ mod tests {
         let mut config = create_test_config();
         config.bind = vec!["/src:/dest".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
@@ -188,7 +191,7 @@ mod tests {
         let mut config = create_test_config();
         config.ro_bind = vec!["/usr".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--ro-bind".to_string()));
@@ -200,7 +203,7 @@ mod tests {
         let mut config = create_test_config();
         config.dev_bind = vec!["/dev/null".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--dev-bind".to_string()));
@@ -212,7 +215,7 @@ mod tests {
         let mut config = create_test_config();
         config.tmpfs = vec!["/tmp".to_string(), "/var/tmp".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--tmpfs".to_string()));
@@ -228,7 +231,7 @@ mod tests {
             .insert("NODE_ENV".to_string(), "production".to_string());
         config.env.insert("DEBUG".to_string(), "true".to_string());
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let setenv_count = args.iter().filter(|x| *x == "--setenv").count();
@@ -242,7 +245,7 @@ mod tests {
         let mut config = create_test_config();
         config.unset_env = vec!["DEBUG".to_string(), "VERBOSE".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--unsetenv".to_string()));
@@ -257,7 +260,7 @@ mod tests {
         config.ro_bind = vec!["/usr".to_string()];
         config.env.insert("TEST".to_string(), "value".to_string());
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Check all types are present
@@ -272,7 +275,7 @@ mod tests {
         let mut config = create_test_config();
         config.share = vec!["user".to_string()]; // Share user, unshare rest
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let cmd = builder.show("node", &["script.js".to_string()]);
 
         assert!(cmd.starts_with("bwrap"));
@@ -284,7 +287,7 @@ mod tests {
     #[test]
     fn test_show_command_with_multiple_args() {
         let config = create_test_config();
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let cmd = builder.show(
             "git",
             &[
@@ -303,7 +306,7 @@ mod tests {
     #[test]
     fn test_empty_config() {
         let config = create_test_config();
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Empty config should unshare all namespaces by default
@@ -320,7 +323,7 @@ mod tests {
         let mut config = create_test_config();
         config.bind = vec!["~/.config:~/.config".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // shellexpand should expand ~ to home directory
@@ -335,7 +338,7 @@ mod tests {
         // Invalid bind format (should be src:dest)
         config.bind = vec!["invalid".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Should not add invalid bind to args (only warning printed)
@@ -347,7 +350,7 @@ mod tests {
     #[test]
     fn test_unshare_all_by_default() {
         let config = create_test_config();
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // All namespaces should be unshared by default
@@ -364,7 +367,7 @@ mod tests {
         let mut config = create_test_config();
         config.share = vec!["user".to_string(), "network".to_string()];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // User and network should NOT be unshared (they are shared)
@@ -390,7 +393,7 @@ mod tests {
             "cgroup".to_string(),
         ];
 
-        let builder = BwrapBuilder::new(config);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // No namespaces should be unshared
