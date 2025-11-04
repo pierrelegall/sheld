@@ -19,12 +19,8 @@ fn main() -> Result<()> {
         Commands::Init { template } => {
             cmd_init(template)?;
         }
-        Commands::Exec {
-            command,
-            args,
-            dry_run,
-        } => {
-            cmd_exec(&command, &args, dry_run)?;
+        Commands::Exec { command, args } => {
+            cmd_exec(&command, &args)?;
         }
         Commands::Check { path } => {
             cmd_check(path)?;
@@ -71,7 +67,7 @@ fn cmd_init(template: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_exec(command: &str, args: &[String], dry_run: bool) -> Result<()> {
+fn cmd_exec(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     let cmd_config = config
@@ -85,14 +81,9 @@ fn cmd_exec(command: &str, args: &[String], dry_run: bool) -> Result<()> {
     let merged_config = config.merge_with_base(cmd_config);
     let builder = BwrapBuilder::new(merged_config);
 
-    if dry_run {
-        let cmd_line = builder.show(command, args);
-        println!("{}", cmd_line);
-        Ok(())
-    } else {
-        let exit_code = builder.exec(command, args)?;
-        std::process::exit(exit_code);
-    }
+    let exit_code = builder.exec(command, args)?;
+
+    std::process::exit(exit_code)
 }
 
 fn cmd_check(path: Option<String>) -> Result<()> {

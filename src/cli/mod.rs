@@ -28,10 +28,6 @@ pub enum Commands {
         /// Arguments to pass to the command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
-
-        /// Show the bwrap command without executing (dry-run)
-        #[arg(long)]
-        dry_run: bool,
     },
 
     /// Validate configuration syntax
