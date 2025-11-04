@@ -54,8 +54,7 @@ pub enum Commands {
 
     /// Output shell integration code
     ShellHook {
-        /// Shell type (bash, zsh, fish)
-        #[arg(default_value = "bash")]
+        /// Shell name
         shell: String,
     },
 }
