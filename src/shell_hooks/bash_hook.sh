@@ -38,7 +38,7 @@ __shwrap_set_wrapped_commands() {
 
 # Refresh SHWRAP_WRAPPED_COMMANDS variable
 __shwrap_refresh_wrapped_commands() {
-  SHWRAP_WRAPPED_COMMANDS=$(shwrap list 2>/dev/null | grep -oE '^[a-zA-Z0-9_-]+:' | cut -d: -f1)
+  SHWRAP_WRAPPED_COMMANDS=$(shwrap list --simple 2>/dev/null)
 }
 
 # Unset all wrapped commands

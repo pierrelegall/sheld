@@ -37,7 +37,11 @@ pub enum Commands {
     },
 
     /// List active profiles and configurations
-    List,
+    List {
+        /// To enable simple output (useful for shell inputs)
+        #[arg(long)]
+        simple: bool,
+    },
 
     /// Show which .shwrap file would be used
     Which,

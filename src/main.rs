@@ -25,8 +25,8 @@ fn main() -> Result<()> {
         Commands::Check { path } => {
             cmd_check(path)?;
         }
-        Commands::List => {
-            cmd_list()?;
+        Commands::List { simple } => {
+            cmd_list(simple)?;
         }
         Commands::Which => {
             cmd_which()?;
@@ -111,22 +111,30 @@ fn cmd_check(path: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_list() -> Result<()> {
+fn cmd_list(simple: bool) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     // Sort commands alphabetically
     let mut commands: Vec<_> = config.commands.iter().collect();
     commands.sort_by_key(|(name, _)| *name);
 
-    println!("Active command configurations:");
-    for (name, cmd_config) in commands {
-        if cmd_config.enabled {
-            println!("\n{}:", name);
-            if !cmd_config.share.is_empty() {
-                println!("  share: {}", cmd_config.share.join(", "));
+    if simple {
+        for (name, cmd_config) in commands {
+            if cmd_config.enabled {
+                println!("{}", name);
             }
-            if !cmd_config.bind.is_empty() {
-                println!("  bind: {}", cmd_config.bind.join(", "));
+        }
+    } else {
+        println!("Active command configurations:");
+        for (name, cmd_config) in commands {
+            if cmd_config.enabled {
+                println!("\n{}:", name);
+                if !cmd_config.share.is_empty() {
+                    println!("  share: {}", cmd_config.share.join(", "));
+                }
+                if !cmd_config.bind.is_empty() {
+                    println!("  bind: {}", cmd_config.bind.join(", "));
+                }
             }
         }
     }
