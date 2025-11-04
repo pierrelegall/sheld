@@ -2,37 +2,36 @@
 # All namespaces unshared by default
 # Use share: to selectively allow namespaces
 
-models:
-  base:
-    share:
-      - user       # Share user namespace with host
-    ro_bind:
-      - /usr
-      - /lib
-      - /lib64
+base:
+  type: model
+  share:
+    - user       # Share user namespace with host
+  ro_bind:
+    - /usr
+    - /lib
+    - /lib64
 
-commands:
-  cargo:
-    enabled: true
-    extends: base
-    share:
-      - network    # cargo needs network for crate downloads
-    bind:
-      - ~/.cargo:~/.cargo
-      - ~/.rustup:~/.rustup
-      - $PWD:/workspace
+cargo:
+  enabled: true
+  extends: base
+  share:
+    - network    # cargo needs network for crate downloads
+  bind:
+    - ~/.cargo:~/.cargo
+    - ~/.rustup:~/.rustup
+    - $PWD:/workspace
 
-  rustc:
-    enabled: true
-    extends: base
-    bind:
-      - ~/.rustup:~/.rustup
-      - $PWD:/workspace
+rustc:
+  enabled: true
+  extends: base
+  bind:
+    - ~/.rustup:~/.rustup
+    - $PWD:/workspace
 
-  rustup:
-    enabled: true
-    extends: base
-    share:
-      - network    # rustup needs network for toolchain downloads
-    bind:
-      - ~/.rustup:~/.rustup
+rustup:
+  enabled: true
+  extends: base
+  share:
+    - network    # rustup needs network for toolchain downloads
+  bind:
+    - ~/.rustup:~/.rustup

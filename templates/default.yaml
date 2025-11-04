@@ -4,16 +4,21 @@
 # By default, all namespaces (user, pid, network, ipc, uts, cgroup) are unshared
 # Use 'share:' to selectively allow specific namespaces
 
-commands:
-  # Example command configuration
-  # npm:
-  #   enabled: true
-  #   share:
-  #     - user        # Share user namespace with host
-  #     - network     # Allow network access
-  #   bind:
-  #     - ~/.npm:~/.npm
-  #     - $PWD:/workspace
-  #   ro_bind:
-  #     - /usr
-  #     - /lib
+# Example model/template
+# base:
+#   type: model
+#   share:
+#     - user        # Share user namespace with host
+#   ro_bind:
+#     - /usr
+#     - /lib
+
+# Example command configuration
+# npm:
+#   enabled: true
+#   extends: base
+#   share:
+#     - network     # Allow network access
+#   bind:
+#     - ~/.npm:~/.npm
+#     - $PWD:/workspace

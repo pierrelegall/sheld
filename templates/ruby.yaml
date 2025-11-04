@@ -2,37 +2,36 @@
 # All namespaces unshared by default
 # Use share: to selectively allow namespaces
 
-models:
-  base:
-    share:
-      - user       # Share user namespace with host
-    ro_bind:
-      - /usr
-      - /lib
-      - /lib64
+base:
+  type: model
+  share:
+    - user       # Share user namespace with host
+  ro_bind:
+    - /usr
+    - /lib
+    - /lib64
 
-commands:
-  ruby:
-    enabled: true
-    extends: base
-    bind:
-      - $PWD:/workspace
+ruby:
+  enabled: true
+  extends: base
+  bind:
+    - $PWD:/workspace
 
-  gem:
-    enabled: true
-    extends: base
-    share:
-      - network    # gem needs network for package downloads
-    bind:
-      - ~/.gem:~/.gem
-      - $PWD:/workspace
+gem:
+  enabled: true
+  extends: base
+  share:
+    - network    # gem needs network for package downloads
+  bind:
+    - ~/.gem:~/.gem
+    - $PWD:/workspace
 
-  bundle:
-    enabled: true
-    extends: base
-    share:
-      - network    # bundle needs network for package downloads
-    bind:
-      - ~/.bundle:~/.bundle
-      - ~/.gem:~/.gem
-      - $PWD:/workspace
+bundle:
+  enabled: true
+  extends: base
+  share:
+    - network    # bundle needs network for package downloads
+  bind:
+    - ~/.bundle:~/.bundle
+    - ~/.gem:~/.gem
+    - $PWD:/workspace

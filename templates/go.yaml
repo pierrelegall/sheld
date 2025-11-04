@@ -2,22 +2,21 @@
 # All namespaces unshared by default
 # Use share: to selectively allow namespaces
 
-models:
-  base:
-    share:
-      - user       # Share user namespace with host
-    ro_bind:
-      - /usr
-      - /lib
-      - /lib64
+base:
+  type: model
+  share:
+    - user       # Share user namespace with host
+  ro_bind:
+    - /usr
+    - /lib
+    - /lib64
 
-commands:
-  go:
-    enabled: true
-    extends: base
-    share:
-      - network    # go needs network for module downloads
-    bind:
-      - ~/go:~/go
-      - ~/.cache/go-build:~/.cache/go-build
-      - $PWD:/workspace
+go:
+  enabled: true
+  extends: base
+  share:
+    - network    # go needs network for module downloads
+  bind:
+    - ~/go:~/go
+    - ~/.cache/go-build:~/.cache/go-build
+    - $PWD:/workspace

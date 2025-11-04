@@ -2,37 +2,37 @@
 # All namespaces unshared by default
 # Use share: to selectively allow namespaces
 
-models:
-  base:
-    share:
-      - user       # Share user namespace with host
-    ro_bind:
-      - /usr
-      - /lib
-      - /lib64
+base:
+  type: model
+  share:
+    - user       # Share user namespace with host
+  ro_bind:
+    - /usr
+    - /lib
+    - /lib64
 
-commands:
-  npm:
-    enabled: true
-    extends: base
-    share:
-      - network    # npm needs network for package downloads
-    bind:
-      - ~/.npm:~/.npm
-      - $PWD:/workspace
+npm:
+  # type: command (default, can be omitted)
+  enabled: true
+  extends: base
+  share:
+    - network    # npm needs network for package downloads
+  bind:
+    - ~/.npm:~/.npm
+    - $PWD:/workspace
 
-  node:
-    enabled: true
-    extends: base
-    bind:
-      - ~/.node_repl_history:~/.node_repl_history
-      - $PWD:/workspace
+node:
+  enabled: true
+  extends: base
+  bind:
+    - ~/.node_repl_history:~/.node_repl_history
+    - $PWD:/workspace
 
-  npx:
-    enabled: true
-    extends: base
-    share:
-      - network    # npx needs network for package downloads
-    bind:
-      - ~/.npm:~/.npm
-      - $PWD:/workspace
+npx:
+  enabled: true
+  extends: base
+  share:
+    - network    # npx needs network for package downloads
+  bind:
+    - ~/.npm:~/.npm
+    - $PWD:/workspace

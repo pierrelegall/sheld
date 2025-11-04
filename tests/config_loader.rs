@@ -1,6 +1,7 @@
 // Copyright (C) 2025 Pierre Le Gall
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use indoc::indoc;
 use shwrap::config::loader::ConfigLoader;
 use std::env;
 use std::fs;
@@ -85,11 +86,10 @@ fn test_load_with_valid_config() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join(".shwrap");
 
-    let yaml = r#"
-commands:
-  node:
-    enabled: true
-"#;
+    let yaml = indoc! {"
+        node:
+          enabled: true
+    "};
     fs::write(&config_path, yaml).unwrap();
 
     let original_dir = env::current_dir().unwrap();
@@ -99,8 +99,9 @@ commands:
     assert!(config.is_some());
 
     let config = config.unwrap();
-    assert_eq!(config.commands.len(), 1);
-    assert!(config.commands.contains_key("node"));
+    let commands = config.get_commands();
+    assert_eq!(commands.len(), 1);
+    assert!(commands.contains_key("node"));
 
     env::set_current_dir(original_dir).unwrap();
 }

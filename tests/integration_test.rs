@@ -11,25 +11,24 @@ fn test_full_config_loading_and_execution() {
     let config_path = temp_dir.path().join(".shwrap");
 
     let yaml = indoc! {"
-        models:
-          base:
-            share:
-              - user
-            ro_bind:
-              - /usr
-              - /lib
+        base:
+          type: model
+          share:
+            - user
+          ro_bind:
+            - /usr
+            - /lib
 
-        commands:
-          node:
-            extends: base
-            enabled: true
-            bind:
-              - ~/.npm:~/.npm
-            env:
-              NODE_ENV: production
+        node:
+          extends: base
+          enabled: true
+          bind:
+            - ~/.npm:~/.npm
+          env:
+            NODE_ENV: production
 
-          python:
-            enabled: false
+        python:
+          enabled: false
     "};
 
     fs::write(&config_path, yaml).unwrap();
@@ -37,13 +36,6 @@ fn test_full_config_loading_and_execution() {
     // Load and verify config
     use shwrap::config::BwrapConfig;
     let config = BwrapConfig::from_file(&config_path).unwrap();
-
-    // Verify templates/base config
-    assert_eq!(config.models.len(), 1);
-    assert!(config.models.contains_key("base"));
-    let base = config.models.get("base").unwrap();
-    assert_eq!(base.share, vec!["user"]);
-    assert_eq!(base.ro_bind.len(), 2);
 
     // Verify node command
     let node_cmd = config.get_command_config("node").unwrap();
@@ -104,30 +96,29 @@ fn test_bwrap_builder_integration() {
 fn test_config_with_all_features() {
     use shwrap::config::BwrapConfig;
     let config = BwrapConfig::from_yaml(indoc! {"
-        models:
-          base:
-            share:
-              - user
-            ro_bind:
-              - /usr
-              - /lib
-            bind:
-              - /src:/dest
+        base:
+          type: model
+          share:
+            - user
+          ro_bind:
+            - /usr
+            - /lib
+          bind:
+            - /src:/dest
 
-        commands:
-          test:
-            extends: base
-            enabled: true
-            dev_bind:
-              - /dev/null
-            tmpfs:
-              - /tmp
-            env:
-              VAR1: value1
-              VAR2: value2
-            unset_env:
-              - DEBUG
-              - VERBOSE
+        test:
+          extends: base
+          enabled: true
+          dev_bind:
+            - /dev/null
+          tmpfs:
+            - /tmp
+          env:
+            VAR1: value1
+            VAR2: value2
+          unset_env:
+            - DEBUG
+            - VERBOSE
     "})
     .unwrap();
 
@@ -164,22 +155,22 @@ fn test_config_with_all_features() {
 fn test_multiple_commands_in_config() {
     use shwrap::config::BwrapConfig;
     let config = BwrapConfig::from_yaml(indoc! {"
-        commands:
-          node:
-            enabled: true
-            share:
-              - user
-              - network
-          python:
-            enabled: true
-            share:
-              - user
-          ruby:
-            enabled: false
+        node:
+          enabled: true
+          share:
+            - user
+            - network
+        python:
+          enabled: true
+          share:
+            - user
+        ruby:
+          enabled: false
     "})
     .unwrap();
 
-    assert_eq!(config.commands.len(), 3);
+    let commands = config.get_commands();
+    assert_eq!(commands.len(), 3);
 
     // Test each command
     let node = config.get_command_config("node").unwrap();
@@ -200,9 +191,8 @@ fn test_config_error_handling() {
 
     // Invalid YAML should error
     let result = BwrapConfig::from_yaml(indoc! {"
-        commands:
-          node
-            this is not valid yaml
+        node
+          this is not valid yaml
     "});
     assert!(result.is_err());
 
@@ -246,12 +236,10 @@ fn test_command_show_formatting() {
 #[test]
 fn test_empty_commands_section() {
     use shwrap::config::BwrapConfig;
-    let config = BwrapConfig::from_yaml(indoc! {"
-        commands: {}
-    "})
-    .unwrap();
+    let config = BwrapConfig::from_yaml("").unwrap();
 
-    assert_eq!(config.commands.len(), 0);
+    let commands = config.get_commands();
+    assert_eq!(commands.len(), 0);
     assert!(config.get_command_config("any").is_none());
 }
 
@@ -259,47 +247,43 @@ fn test_empty_commands_section() {
 fn test_base_without_commands() {
     use shwrap::config::BwrapConfig;
     let config = BwrapConfig::from_yaml(indoc! {"
-        models:
-          base:
-            share:
-              - user
+        base:
+          type: model
+          share:
+            - user
     "})
     .unwrap();
 
-    assert_eq!(config.models.len(), 1);
-    assert!(config.models.contains_key("base"));
-    assert_eq!(config.commands.len(), 0);
+    let commands = config.get_commands();
+    assert_eq!(commands.len(), 0);
 }
 
 #[test]
 fn test_custom_template_name() {
     use shwrap::config::BwrapConfig;
     let config = BwrapConfig::from_yaml(indoc! {"
-        models:
-          minimal:
-            share:
-              - user
-              - network
-          strict:
-            share:
-              - user
-            ro_bind:
-              - /usr
+        minimal:
+          type: model
+          share:
+            - user
+            - network
 
-        commands:
-          node:
-            extends: minimal
-            bind:
-              - ~/.npm:~/.npm
-          python:
-            extends: strict
+        strict:
+          type: model
+          share:
+            - user
+          ro_bind:
+            - /usr
+
+        node:
+          extends: minimal
+          bind:
+            - ~/.npm:~/.npm
+
+        python:
+          extends: strict
     "})
     .unwrap();
-
-    // Verify templates
-    assert_eq!(config.models.len(), 2);
-    assert!(config.models.contains_key("minimal"));
-    assert!(config.models.contains_key("strict"));
 
     // Test node with minimal template
     let node = config.get_command_config("node").unwrap();
@@ -321,11 +305,10 @@ fn test_unshare_all_by_default_integration() {
 
     // Test 1: Empty config should unshare all namespaces
     let config = BwrapConfig::from_yaml(indoc! {"
-        commands:
-          isolated:
-            enabled: true
-            ro_bind:
-              - /usr
+        isolated:
+          enabled: true
+          ro_bind:
+            - /usr
     "})
     .unwrap();
 
@@ -349,14 +332,13 @@ fn test_share_specific_namespaces_integration() {
 
     // Test 2: Share only user and network namespaces
     let config = BwrapConfig::from_yaml(indoc! {"
-        commands:
-          network_enabled:
-            enabled: true
-            share:
-              - user
-              - network
-            ro_bind:
-              - /usr
+        network_enabled:
+          enabled: true
+          share:
+            - user
+            - network
+          ro_bind:
+            - /usr
     "})
     .unwrap();
 
@@ -382,15 +364,14 @@ fn test_share_multiple_namespaces_integration() {
 
     // Test 3: Share user, network, and ipc namespaces
     let config = BwrapConfig::from_yaml(indoc! {"
-        commands:
-          relaxed:
-            enabled: true
-            share:
-              - user
-              - network
-              - ipc
-            ro_bind:
-              - /usr
+        relaxed:
+          enabled: true
+          share:
+            - user
+            - network
+            - ipc
+          ro_bind:
+            - /usr
     "})
     .unwrap();
 
@@ -416,18 +397,17 @@ fn test_share_all_namespaces_integration() {
 
     // Test 4: Share all namespaces (no isolation)
     let config = BwrapConfig::from_yaml(indoc! {"
-        commands:
-          no_isolation:
-            enabled: true
-            share:
-              - user
-              - pid
-              - network
-              - ipc
-              - uts
-              - cgroup
-            ro_bind:
-              - /usr
+        no_isolation:
+          enabled: true
+          share:
+            - user
+            - pid
+            - network
+            - ipc
+            - uts
+            - cgroup
+          ro_bind:
+            - /usr
     "})
     .unwrap();
 
@@ -451,19 +431,18 @@ fn test_template_with_share_inheritance() {
 
     // Test 5: Template inheritance with share
     let config = BwrapConfig::from_yaml(indoc! {"
-        models:
-          base:
-            share:
-              - user
-            ro_bind:
-              - /usr
-              - /lib
+        base:
+          type: model
+          share:
+            - user
+          ro_bind:
+            - /usr
+            - /lib
 
-        commands:
-          app:
-            extends: base
-            share:
-              - network
+        app:
+          extends: base
+          share:
+            - network
     "})
     .unwrap();
 

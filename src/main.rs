@@ -71,7 +71,8 @@ fn command_list_cmd(simple: bool) -> Result<()> {
     let config = ConfigLoader::load()?.context("No .shwrap configuration found")?;
 
     // Sort commands alphabetically
-    let mut commands: Vec<_> = config.commands.iter().collect();
+    let commands_map = config.get_commands();
+    let mut commands: Vec<_> = commands_map.iter().collect();
     commands.sort_by_key(|(name, _)| *name);
 
     if simple {
@@ -128,10 +129,11 @@ fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
     }
 
     println!("Configuration is valid: {:?}", config_path);
-    println!("Found {} command(s)", config.commands.len());
+    let commands_map = config.get_commands();
+    println!("Found {} command(s)", commands_map.len());
 
     // Sort commands alphabetically
-    let mut commands: Vec<_> = config.commands.iter().collect();
+    let mut commands: Vec<_> = commands_map.iter().collect();
     commands.sort_by_key(|(name, _)| *name);
 
     for (name, cmd_config) in commands {
