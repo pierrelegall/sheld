@@ -3,6 +3,7 @@
 
 use indoc::indoc;
 use shwrap::config::EntryType;
+use std::env;
 use std::fs;
 use tempfile::TempDir;
 
@@ -463,4 +464,164 @@ fn test_template_with_share_inheritance() {
     assert!(cmd_line.contains("--unshare-ipc"));
     assert!(cmd_line.contains("--unshare-uts"));
     assert!(cmd_line.contains("--unshare-cgroup"));
+}
+
+#[test]
+fn test_user_config_loaded_when_no_local_config() {
+    use shwrap::config::loader::ConfigLoader;
+
+    // Create a temp directory to act as fake HOME
+    let fake_home = TempDir::new().unwrap();
+    let config_dir = fake_home.path().join(".config").join("shwrap");
+    fs::create_dir_all(&config_dir).unwrap();
+
+    // Create user config at ~/.config/shwrap/default.yaml
+    let user_config_path = config_dir.join("default.yaml");
+    let yaml = indoc! {"
+        base:
+          type: model
+          share:
+            - user
+          ro_bind:
+            - /usr
+            - /lib
+
+        git:
+          extends: base
+          enabled: true
+          share:
+            - network
+          bind:
+            - ~/.gitconfig:~/.gitconfig
+          env:
+            GIT_AUTHOR_NAME: TestUser
+    "};
+    fs::write(&user_config_path, yaml).unwrap();
+
+    // Create a separate temp directory to use as current working directory
+    // (to ensure no local .shwrap.yaml exists)
+    let work_dir = TempDir::new().unwrap();
+
+    // Save original HOME and current directory
+    let original_home = env::var("HOME").ok();
+    let original_dir = env::current_dir().unwrap();
+
+    // Set fake HOME and change to work directory
+    unsafe {
+        env::set_var("HOME", fake_home.path());
+    }
+    env::set_current_dir(work_dir.path()).unwrap();
+
+    // Test that user config is found and loaded
+    let found_config = ConfigLoader::find_config().unwrap();
+    assert!(found_config.is_some());
+    assert_eq!(found_config.unwrap(), user_config_path);
+
+    // Test that config loads correctly
+    let config = ConfigLoader::load().unwrap();
+    assert!(config.is_some());
+
+    let config = config.unwrap();
+    let git_cmd = config.get_command("git");
+    assert!(git_cmd.is_some());
+
+    let git_cmd = git_cmd.unwrap();
+    assert!(git_cmd.enabled);
+    assert_eq!(git_cmd.extends, Some("base".to_string()));
+
+    // Verify merging with base works
+    let merged = config.merge_with_base(git_cmd);
+    assert!(merged.share.contains(&"user".to_string()));
+    assert!(merged.share.contains(&"network".to_string()));
+    assert!(merged.ro_bind.contains(&"/usr".to_string()));
+    assert!(merged.ro_bind.contains(&"/lib".to_string()));
+    assert_eq!(
+        merged.env.get("GIT_AUTHOR_NAME"),
+        Some(&"TestUser".to_string())
+    );
+
+    // Restore original HOME and directory
+    unsafe {
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+    }
+    env::set_current_dir(original_dir).unwrap();
+}
+
+#[test]
+fn test_local_config_takes_precedence_over_user_config() {
+    use shwrap::config::loader::ConfigLoader;
+
+    // Create a temp directory to act as fake HOME with user config
+    let fake_home = TempDir::new().unwrap();
+    let config_dir = fake_home.path().join(".config").join("shwrap");
+    fs::create_dir_all(&config_dir).unwrap();
+
+    // Create user config
+    let user_config_path = config_dir.join("default.yaml");
+    let user_yaml = indoc! {"
+        node:
+          enabled: true
+          share:
+            - user
+          env:
+            SOURCE: user_config
+    "};
+    fs::write(&user_config_path, user_yaml).unwrap();
+
+    // Create work directory with local config
+    let work_dir = TempDir::new().unwrap();
+    let local_config_path = work_dir.path().join(".shwrap.yaml");
+    let local_yaml = indoc! {"
+        node:
+          enabled: true
+          share:
+            - user
+            - network
+          env:
+            SOURCE: local_config
+    "};
+    fs::write(&local_config_path, local_yaml).unwrap();
+
+    // Save original HOME and current directory
+    let original_home = env::var("HOME").ok();
+    let original_dir = env::current_dir().unwrap();
+
+    // Set fake HOME and change to work directory
+    unsafe {
+        env::set_var("HOME", fake_home.path());
+    }
+    env::set_current_dir(work_dir.path()).unwrap();
+
+    // Test that local config is found (not user config)
+    let found_config = ConfigLoader::find_config().unwrap();
+    assert!(found_config.is_some());
+    assert_eq!(found_config.unwrap(), local_config_path);
+
+    // Test that local config loads (not user config)
+    let config = ConfigLoader::load().unwrap();
+    assert!(config.is_some());
+
+    let config = config.unwrap();
+    let node_cmd = config.get_command("node").unwrap();
+
+    // Verify it's the local config (has network share and SOURCE=local_config)
+    assert!(node_cmd.share.contains(&"network".to_string()));
+    assert_eq!(
+        node_cmd.env.get("SOURCE"),
+        Some(&"local_config".to_string())
+    );
+
+    // Restore original HOME and directory
+    unsafe {
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+    }
+    env::set_current_dir(original_dir).unwrap();
 }
