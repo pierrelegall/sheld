@@ -12,11 +12,11 @@ use tempfile::TempDir;
 static DIR_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
-fn test_find_local_config_in_current_dir() {
+fn test_get_local_config_file_in_current_dir() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join(".shwrap.yaml");
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
 
     fs::write(&config_path, "commands: {}").unwrap();
 
@@ -24,7 +24,7 @@ fn test_find_local_config_in_current_dir() {
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&temp_dir).unwrap();
 
-    let found = ConfigLoader::find_local_config().unwrap();
+    let found = ConfigLoader::get_local_config_file().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 
@@ -33,11 +33,11 @@ fn test_find_local_config_in_current_dir() {
 }
 
 #[test]
-fn test_find_local_config_in_parent_dir() {
+fn test_get_local_config_file_in_parent_dir() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join(".shwrap.yaml");
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
     fs::write(&config_path, "commands: {}").unwrap();
 
     // Create subdirectory
@@ -48,7 +48,7 @@ fn test_find_local_config_in_parent_dir() {
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&sub_dir).unwrap();
 
-    let found = ConfigLoader::find_local_config().unwrap();
+    let found = ConfigLoader::get_local_config_file().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 
@@ -57,7 +57,7 @@ fn test_find_local_config_in_parent_dir() {
 }
 
 #[test]
-fn test_find_local_config_not_found() {
+fn test_get_local_config_file_not_found() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -65,17 +65,17 @@ fn test_find_local_config_not_found() {
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&temp_dir).unwrap();
 
-    let found = ConfigLoader::find_local_config().unwrap();
+    let found = ConfigLoader::get_local_config_file().unwrap();
     assert!(found.is_none());
 
     env::set_current_dir(original_dir).unwrap();
 }
 
 #[test]
-fn test_find_user_config() {
+fn test_get_user_config_file() {
     // This test checks the logic without actually creating files in HOME
     // We can't easily test this without mocking HOME env var
-    let result = ConfigLoader::find_user_config();
+    let result = ConfigLoader::get_user_config_file();
     assert!(result.is_ok());
 }
 
@@ -84,7 +84,7 @@ fn test_load_with_valid_config() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join(".shwrap.yaml");
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
 
     let yaml = indoc! {"
         node:
@@ -137,18 +137,18 @@ fn test_load_without_config() {
 }
 
 #[test]
-fn test_find_config_hierarchy_local_first() {
+fn test_get_config_file_hierarchy_local_first() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     // Local config should take precedence over user/system configs
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join(".shwrap.yaml");
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
     fs::write(&config_path, "commands: {}").unwrap();
 
     let original_dir = env::current_dir().unwrap();
     env::set_current_dir(&temp_dir).unwrap();
 
-    let found = ConfigLoader::find_config().unwrap();
+    let found = ConfigLoader::get_config_file().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 
@@ -156,11 +156,11 @@ fn test_find_config_hierarchy_local_first() {
 }
 
 #[test]
-fn test_find_config_walks_up_directories() {
+fn test_get_config_file_walks_up_directories() {
     let _lock = DIR_MUTEX.lock().unwrap();
 
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join(".shwrap.yaml");
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
     fs::write(&config_path, "commands: {}").unwrap();
 
     // Create nested subdirectories
@@ -172,7 +172,7 @@ fn test_find_config_walks_up_directories() {
     env::set_current_dir(&sub2).unwrap();
 
     // Should find config in ancestor directory
-    let found = ConfigLoader::find_local_config().unwrap();
+    let found = ConfigLoader::get_local_config_file().unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap(), config_path);
 

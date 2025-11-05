@@ -49,7 +49,7 @@ fn main() -> Result<()> {
 }
 
 fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
-    let config = ConfigLoader::load()?.context("No .shwrap.yaml configuration found")?;
+    let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let cmd_config = config
         .get_command(command)
@@ -68,7 +68,7 @@ fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
 }
 
 fn command_list_cmd(simple: bool) -> Result<()> {
-    let config = ConfigLoader::load()?.context("No .shwrap.yaml configuration found")?;
+    let config = ConfigLoader::load()?.context("No configuration found")?;
 
     // Sort commands alphabetically
     let commands_map = config.get_commands();
@@ -100,7 +100,7 @@ fn command_list_cmd(simple: bool) -> Result<()> {
 }
 
 fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
-    let config = ConfigLoader::load()?.context("No .shwrap.yaml configuration found")?;
+    let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let cmd_config = config
         .get_command(command)
@@ -119,7 +119,7 @@ fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
     let config_path = if let Some(p) = path {
         std::path::PathBuf::from(p)
     } else {
-        ConfigLoader::find_config()?.context("No .shwrap.yaml configuration found")?
+        ConfigLoader::get_config_file()?.context("No configuration found")?
     };
 
     let config = config::Config::from_file(&config_path)?;
@@ -159,23 +159,24 @@ fn config_init_cmd(template: Option<String>) -> Result<()> {
         Some(other) => bail!("Unknown template: {}", other),
     };
 
-    let config_path = ".shwrap.yaml";
+    let config_path = ConfigLoader::local_config_name();
     if std::path::Path::new(config_path).exists() {
-        bail!(".shwrap.yaml file already exists in current directory");
+        bail!("{} file already exists in current directory", config_path);
     }
 
-    fs::write(config_path, template_content).context("Failed to write .shwrap.yaml file")?;
+    fs::write(config_path, template_content)
+        .context(format!("Failed to write {} file", config_path))?;
 
-    println!("Created .shwrap.yaml configuration file");
+    println!("Created {} configuration file", config_path);
 
     Ok(())
 }
 
 fn config_which_cmd() -> Result<()> {
-    if let Some(config_path) = ConfigLoader::find_config()? {
+    if let Some(config_path) = ConfigLoader::get_config_file()? {
         println!("{}", config_path.display());
     } else {
-        println!("No .shwrap.yaml configuration found");
+        println!("No configuration found");
     }
 
     Ok(())

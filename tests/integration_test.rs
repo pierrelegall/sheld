@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use indoc::indoc;
+use shwrap::config::loader::ConfigLoader;
 use shwrap::config::EntryType;
 use std::env;
 use std::fs;
@@ -10,7 +11,7 @@ use tempfile::TempDir;
 #[test]
 fn test_full_config_loading_and_execution() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join(".shwrap.yaml");
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
 
     let yaml = indoc! {"
         base:
@@ -200,7 +201,8 @@ fn test_config_error_handling() {
     assert!(result.is_err());
 
     // Non-existent file should error
-    let result = Config::from_file("/nonexistent/path/.shwrap.yaml");
+    let nonexistent_path = format!("/nonexistent/path/{}", ConfigLoader::local_config_name());
+    let result = Config::from_file(&nonexistent_path);
     assert!(result.is_err());
 }
 
@@ -468,15 +470,13 @@ fn test_template_with_share_inheritance() {
 
 #[test]
 fn test_user_config_loaded_when_no_local_config() {
-    use shwrap::config::loader::ConfigLoader;
-
     // Create a temp directory to act as fake HOME
     let fake_home = TempDir::new().unwrap();
     let config_dir = fake_home.path().join(".config").join("shwrap");
     fs::create_dir_all(&config_dir).unwrap();
 
     // Create user config at ~/.config/shwrap/default.yaml
-    let user_config_path = config_dir.join("default.yaml");
+    let user_config_path = config_dir.join(ConfigLoader::user_config_name());
     let yaml = indoc! {"
         base:
           type: model
@@ -499,7 +499,7 @@ fn test_user_config_loaded_when_no_local_config() {
     fs::write(&user_config_path, yaml).unwrap();
 
     // Create a separate temp directory to use as current working directory
-    // (to ensure no local .shwrap.yaml exists)
+    // (to ensure no local config exists)
     let work_dir = TempDir::new().unwrap();
 
     // Save original HOME and current directory
@@ -513,7 +513,7 @@ fn test_user_config_loaded_when_no_local_config() {
     env::set_current_dir(work_dir.path()).unwrap();
 
     // Test that user config is found and loaded
-    let found_config = ConfigLoader::find_config().unwrap();
+    let found_config = ConfigLoader::get_config_file().unwrap();
     assert!(found_config.is_some());
     assert_eq!(found_config.unwrap(), user_config_path);
 
@@ -553,15 +553,13 @@ fn test_user_config_loaded_when_no_local_config() {
 
 #[test]
 fn test_local_config_takes_precedence_over_user_config() {
-    use shwrap::config::loader::ConfigLoader;
-
     // Create a temp directory to act as fake HOME with user config
     let fake_home = TempDir::new().unwrap();
     let config_dir = fake_home.path().join(".config").join("shwrap");
     fs::create_dir_all(&config_dir).unwrap();
 
     // Create user config
-    let user_config_path = config_dir.join("default.yaml");
+    let user_config_path = config_dir.join(ConfigLoader::user_config_name());
     let user_yaml = indoc! {"
         node:
           enabled: true
@@ -574,7 +572,7 @@ fn test_local_config_takes_precedence_over_user_config() {
 
     // Create work directory with local config
     let work_dir = TempDir::new().unwrap();
-    let local_config_path = work_dir.path().join(".shwrap.yaml");
+    let local_config_path = work_dir.path().join(ConfigLoader::local_config_name());
     let local_yaml = indoc! {"
         node:
           enabled: true
@@ -597,7 +595,7 @@ fn test_local_config_takes_precedence_over_user_config() {
     env::set_current_dir(work_dir.path()).unwrap();
 
     // Test that local config is found (not user config)
-    let found_config = ConfigLoader::find_config().unwrap();
+    let found_config = ConfigLoader::get_config_file().unwrap();
     assert!(found_config.is_some());
     assert_eq!(found_config.unwrap(), local_config_path);
 

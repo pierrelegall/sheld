@@ -3,38 +3,47 @@
 
 use anyhow::{Context, Result};
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::Config;
+
+/// Local config file name
+const LOCAL_CONFIG_FILE_NAME: &str = ".shwrap.yaml";
+
+/// User config file name
+const USER_CONFIG_FILE_NAME: &str = "default.yaml";
+
+/// User config directory path relative to HOME
+const USER_CONFIG_DIR_PATH: &str = "~/.config/shwrap";
 
 pub struct ConfigLoader;
 
 impl ConfigLoader {
-    /// Search for .shwrap.yaml config file in hierarchical order
-    pub fn find_config() -> Result<Option<PathBuf>> {
-        // 1. Look for .shwrap.yaml in current directory and parent directories
-        if let Some(local_config) = Self::find_local_config()? {
-            return Ok(Some(local_config));
-        }
-
-        // 2. Look for user-level config
-        if let Some(user_config) = Self::find_user_config()? {
-            return Ok(Some(user_config));
-        }
-
-        Ok(None)
+    /// Get the local config file name
+    pub fn local_config_name() -> &'static str {
+        LOCAL_CONFIG_FILE_NAME
     }
 
-    /// Find .shwrap.yaml file in current or parent directories
-    pub fn find_local_config() -> Result<Option<PathBuf>> {
-        let current_dir = env::current_dir().context("Failed to get current directory")?;
+    /// Get the user config file name
+    pub fn user_config_name() -> &'static str {
+        USER_CONFIG_FILE_NAME
+    }
 
+    /// Get the user config directory path (constant, not expanded)
+    pub fn user_config_dir() -> &'static str {
+        USER_CONFIG_DIR_PATH
+    }
+
+    /// Get the directory containing the local config file by walking up from current directory
+    /// Returns None if no directory contains a local config file
+    pub fn get_local_config_dir() -> Result<Option<PathBuf>> {
+        let current_dir = env::current_dir().context("Failed to get current directory")?;
         let mut dir = current_dir.as_path();
 
         loop {
-            let config_path = dir.join(".shwrap.yaml");
+            let config_path = dir.join(LOCAL_CONFIG_FILE_NAME);
             if config_path.exists() {
-                return Ok(Some(config_path));
+                return Ok(Some(dir.to_path_buf()));
             }
 
             // Move to parent directory
@@ -47,17 +56,43 @@ impl ConfigLoader {
         Ok(None)
     }
 
-    /// Find user-level config at ~/.config/shwrap/default.yaml
-    pub fn find_user_config() -> Result<Option<PathBuf>> {
-        if let Some(home) = env::var_os("HOME") {
-            let config_path = Path::new(&home)
-                .join(".config")
-                .join("shwrap")
-                .join("default.yaml");
+    /// Get the user config directory (expanded) path
+    pub fn get_user_config_dir() -> PathBuf {
+        let expanded_dir = shellexpand::tilde(USER_CONFIG_DIR_PATH);
+        PathBuf::from(expanded_dir.as_ref())
+    }
 
-            if config_path.exists() {
-                return Ok(Some(config_path));
-            }
+    /// Get config file path in hierarchical order (local first, then user)
+    pub fn get_config_file() -> Result<Option<PathBuf>> {
+        // Look for local config in current directory and parent directories
+        if let Some(local_config) = Self::get_local_config_file()? {
+            return Ok(Some(local_config));
+        }
+
+        // Look for user-level config
+        if let Some(user_config) = Self::get_user_config_file()? {
+            return Ok(Some(user_config));
+        }
+
+        Ok(None)
+    }
+
+    /// Get local config file by searching in current and parent directories
+    pub fn get_local_config_file() -> Result<Option<PathBuf>> {
+        if let Some(dir) = Self::get_local_config_dir()? {
+            let config_path = dir.join(LOCAL_CONFIG_FILE_NAME);
+            return Ok(Some(config_path));
+        }
+
+        Ok(None)
+    }
+
+    /// Get user-level config file
+    pub fn get_user_config_file() -> Result<Option<PathBuf>> {
+        let config_path = Self::get_user_config_dir().join(USER_CONFIG_FILE_NAME);
+
+        if config_path.exists() {
+            return Ok(Some(config_path));
         }
 
         Ok(None)
@@ -65,7 +100,7 @@ impl ConfigLoader {
 
     /// Load config from the found path
     pub fn load() -> Result<Option<Config>> {
-        if let Some(path) = Self::find_config()? {
+        if let Some(path) = Self::get_config_file()? {
             let config = Config::from_file(&path)?;
             Ok(Some(config))
         } else {
