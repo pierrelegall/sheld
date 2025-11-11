@@ -14,8 +14,6 @@ Shwrap allows you to define sandbox profiles (in your directory or globally for 
 
 ⚠ **Alpha software**: Shwrap is an alpha software, so breaking changes will happen.
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
 ## Features
 
 - 📁 **Hierarchical configuration**: Local `.shwrap.yaml` files override user config at `~/.config/shwrap/default.yaml`
@@ -34,17 +32,15 @@ cd shwrap
 cargo build --release
 ```
 
-## Quick start
+## How to setup command wrapping
 
-1. **Initialize a configuration file**:
+First, initialize a configuration file in a directory:
 
 ```sh
 shwrap config init
-# Or use a template:
-shwrap config init --template nodejs
 ```
 
-2. **Edit `.shwrap.yaml` file** to define your commands:
+Then, edit the `.shwrap.yaml` file to define your command wraps:
 
 ```yaml
 node:
@@ -59,47 +55,21 @@ node:
     - /lib
 ```
 
-3. **Run manually**:
+## How to run wrapped commands
+
+You can run wrapped commands manually:
 
 ```sh
 shwrap command exec node app.js
 ```
 
-4. **Or use shell hooks** (see below) for automatic wrapping.
+Or use the shell hook. Shell hook automatically wrap configured commands when you execute them. It automatically reloads command configurations on directory change.
 
-## How to Use
+**Note**: To enable debug logs, set `SHWRAP_DEBUG` to `1`.
 
-### Manual Use
+## Setup shell hook
 
-Execute a sandboxed command manually:
-
-```sh
-# Execute a command
-shwrap command exec node app.js
-
-# Show the bwrap command that would be executed
-shwrap command show node app.js
-
-# List active command configurations
-shwrap command list
-
-# Check configuration syntax
-shwrap config check
-
-# Show which config file is being used
-shwrap config which
-```
-
-### Shell hook
-
-Shell hooks automatically wrap configured commands when you execute them.
-
-**Features**:
-
-- Reloads command configurations when changing directories
-- Supports debug mode: `export SHWRAP_DEBUG=1`
-
-#### Bash
+### Bash
 
 Add to your `~/.bashrc`:
 
@@ -107,7 +77,7 @@ Add to your `~/.bashrc`:
 eval "$(shwrap shell-hook get bash)"
 ```
 
-#### Zsh
+### Zsh
 
 Add to your `~/.zshrc`:
 
@@ -115,7 +85,7 @@ Add to your `~/.zshrc`:
 eval "$(shwrap shell-hook get zsh)"
 ```
 
-#### Fish
+### Fish
 
 Add to your `~/.config/fish/config.fish`:
 
@@ -186,62 +156,6 @@ Available templates (use with `shwrap config init --template <name>`):
 - `ruby` - Ruby development
 - `go` - Go development
 - `rust` - Rust development
-
-## Examples
-
-### Sandboxed Node.js
-
-```yaml
-node:
-  share:
-    - user
-    - network
-  bind:
-    - ~/.npm:~/.npm
-    - $PWD:/workspace
-  ro_bind:
-    - /usr
-    - /lib
-    - /etc/resolv.conf
-```
-
-### Isolated Python (no network)
-
-```yaml
-python:
-  enabled: true
-  share:
-    - user
-  bind:
-    - $PWD:/workspace
-  ro_bind:
-    - /usr
-    - /lib
-```
-
-### Using Models
-
-```yaml
-dev_base:
-  type: model
-  share:
-    - user
-    - network
-  ro_bind:
-    - /usr
-    - /lib
-    - /etc
-
-node:
-  extends: dev_base
-  bind:
-    - ~/.npm:~/.npm
-
-python:
-  extends: dev_base
-  bind:
-    - ~/.cache/pip:~/.cache/pip
-```
 
 ## TODOs
 
