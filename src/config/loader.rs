@@ -99,12 +99,32 @@ impl ConfigLoader {
     }
 
     /// Load config from the found path
+    /// If both user and local configs exist, merge them (local overrides user)
     pub fn load() -> Result<Option<Config>> {
-        if let Some(path) = Self::get_config_file()? {
-            let config = Config::from_file(&path)?;
-            Ok(Some(config))
-        } else {
-            Ok(None)
+        let user_config = Self::get_user_config_file()?;
+        let local_config = Self::get_local_config_file()?;
+
+        match (user_config, local_config) {
+            (Some(user_path), Some(local_path)) => {
+                // Both exist: merge them (local overrides user)
+                let user = Config::from_file(&user_path)?;
+                let local = Config::from_file(&local_path)?;
+                Ok(Some(Config::merge(user, local)))
+            }
+            (Some(user_path), None) => {
+                // Only user config exists
+                let config = Config::from_file(&user_path)?;
+                Ok(Some(config))
+            }
+            (None, Some(local_path)) => {
+                // Only local config exists
+                let config = Config::from_file(&local_path)?;
+                Ok(Some(config))
+            }
+            (None, None) => {
+                // No config exists
+                Ok(None)
+            }
         }
     }
 }

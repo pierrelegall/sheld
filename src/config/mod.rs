@@ -165,6 +165,29 @@ impl Config {
     pub fn merge_with_base(&self, cmd_config: Entry) -> Entry {
         self.merge_with_template(cmd_config)
     }
+
+    /// Merge another config into this one
+    /// - Entries with the same name: override takes precedence
+    /// - Special case: if override has enabled=false, skip merge and keep base entry
+    /// - Distinct entries: both are included
+    pub fn merge(base: Config, override_config: Config) -> Config {
+        let mut merged_entries = base.entries.clone();
+
+        for (name, override_entry) in override_config.entries {
+            // If override entry is disabled and base has this entry, skip the override
+            // (treat disabled in override as "use base version instead")
+            if !override_entry.enabled && merged_entries.contains_key(&name) {
+                continue;
+            }
+
+            // Otherwise, override completely replaces base entry (or adds new entry)
+            merged_entries.insert(name, override_entry);
+        }
+
+        Config {
+            entries: merged_entries,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -601,5 +624,175 @@ mod tests {
 
         let all_enabled = config.get_entries_with(|e| e.enabled);
         assert_eq!(all_enabled.len(), 3);
+    }
+
+    #[test]
+    fn test_merge_both_configs_with_distinct_entries() {
+        let user_config = Config::from_yaml(indoc! {"
+            python:
+              enabled: true
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let local_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(user_config, local_config);
+        let commands = merged.get_commands();
+
+        assert_eq!(commands.len(), 2);
+        assert!(commands.contains_key("python"));
+        assert!(commands.contains_key("node"));
+    }
+
+    #[test]
+    fn test_merge_local_command_overrides_user_command() {
+        let user_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let local_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(user_config, local_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // Local config should win
+        assert_eq!(node_cmd.share, vec!["network"]);
+    }
+
+    #[test]
+    fn test_merge_local_command_extends_user_model() {
+        let user_config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+              ro_bind:
+                - /usr
+        "})
+        .unwrap();
+
+        let local_config = Config::from_yaml(indoc! {"
+            node:
+              extends: base
+              bind:
+                - ~/.npm:~/.npm
+        "})
+        .unwrap();
+
+        let merged = Config::merge(user_config, local_config);
+        let node_cmd = merged.get_command("node").unwrap();
+        let with_template = merged.merge_with_template(node_cmd);
+
+        // Should inherit from user's base model
+        assert_eq!(with_template.share, vec!["user"]);
+        assert_eq!(with_template.ro_bind, vec!["/usr"]);
+        assert_eq!(with_template.bind, vec!["~/.npm:~/.npm"]);
+    }
+
+    #[test]
+    fn test_merge_local_model_shadows_user_model() {
+        let user_config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let local_config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(user_config, local_config);
+        let base_model = merged.get_model("base").unwrap();
+
+        // Local model should completely replace user model
+        assert_eq!(base_model.share, vec!["network"]);
+    }
+
+    #[test]
+    fn test_merge_local_disabled_uses_user_version() {
+        let user_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let local_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: false
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(user_config, local_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // User version should be kept when local has enabled:false
+        assert!(node_cmd.enabled);
+        assert_eq!(node_cmd.share, vec!["user"]);
+    }
+
+    #[test]
+    fn test_merge_only_user_config() {
+        let user_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let empty_config = Config::from_yaml("").unwrap();
+
+        let merged = Config::merge(user_config, empty_config);
+        let commands = merged.get_commands();
+
+        assert_eq!(commands.len(), 1);
+        assert!(commands.contains_key("node"));
+    }
+
+    #[test]
+    fn test_merge_only_local_config() {
+        let empty_config = Config::from_yaml("").unwrap();
+
+        let local_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(empty_config, local_config);
+        let commands = merged.get_commands();
+
+        assert_eq!(commands.len(), 1);
+        assert!(commands.contains_key("node"));
     }
 }

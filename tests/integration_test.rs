@@ -558,9 +558,16 @@ fn test_local_config_takes_precedence_over_user_config() {
     let config_dir = fake_home.path().join(".config").join("shwrap");
     fs::create_dir_all(&config_dir).unwrap();
 
-    // Create user config
+    // Create user config with python command
     let user_config_path = config_dir.join(ConfigLoader::user_config_name());
     let user_yaml = indoc! {"
+        python:
+          enabled: true
+          share:
+            - user
+          env:
+            FROM_USER: yes
+
         node:
           enabled: true
           share:
@@ -594,23 +601,30 @@ fn test_local_config_takes_precedence_over_user_config() {
     }
     env::set_current_dir(work_dir.path()).unwrap();
 
-    // Test that local config is found (not user config)
+    // Test that local config is found by get_config_file()
     let found_config = ConfigLoader::get_config_file().unwrap();
     assert!(found_config.is_some());
     assert_eq!(found_config.unwrap(), local_config_path);
 
-    // Test that local config loads (not user config)
+    // Test that both configs are merged (local overrides user for 'node', python from user is kept)
     let config = ConfigLoader::load().unwrap();
     assert!(config.is_some());
 
     let config = config.unwrap();
     let node_cmd = config.get_command("node").unwrap();
 
-    // Verify it's the local config (has network share and SOURCE=local_config)
+    // Verify local config overrides user config for 'node'
     assert!(node_cmd.share.contains(&"network".to_string()));
     assert_eq!(
         node_cmd.env.get("SOURCE"),
         Some(&"local_config".to_string())
+    );
+
+    // Verify python command from user config is also present
+    let python_cmd = config.get_command("python").unwrap();
+    assert_eq!(
+        python_cmd.env.get("FROM_USER"),
+        Some(&"yes".to_string())
     );
 
     // Restore original HOME and directory

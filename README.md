@@ -16,7 +16,7 @@ Shwrap allows you to define sandbox profiles (in your directory or globally for 
 
 ## Features
 
-- 📁 **Hierarchical configuration**: Local `.shwrap.yaml` files override user config at `~/.config/shwrap/default.yaml`
+- 📁 **Hierarchical configuration**: Local `.shwrap.yaml` merges with user config at `~/.config/shwrap/default.yaml`
 - 🔒 **Secure by default**: All namespaces unshared unless explicitly allowed
 - 🎯 **Per-command rules**: Different sandbox settings for each command
 - 📦 **Model system**: Reusable configuration models for common patterns
@@ -97,10 +97,16 @@ shwrap shell-hook get fish | source
 
 ### Configuration file hierarchy
 
-Shwrap searches for configuration in this order:
+Shwrap merges configuration files to combine global defaults with project-specific settings:
 
-1. **Local**: `.shwrap.yaml` in current directory or parent directories
-2. **User**: `~/.config/shwrap/default.yaml`
+1. **User**: `~/.config/shwrap/default.yaml` - Global baseline configuration
+2. **Local**: `.shwrap.yaml` in current directory or parent directories - Project-specific overrides
+
+When both files exist, they are merged with local entries taking precedence:
+- Commands/models with the same name: local completely replaces user
+- Distinct commands/models: both are included
+- Local `enabled: false`: use user version instead (skip local override)
+- Local commands can extend models defined in user config
 
 ### Configuration syntax
 
@@ -156,15 +162,6 @@ Available templates (use with `shwrap config init --template <name>`):
 - `ruby` - Ruby development
 - `go` - Go development
 - `rust` - Rust development
-
-## TODOs
-
-- [X] Use local configuration file
-- [X] Use user configuration file if no local configuration
-- [ ] Local configuration extends user configuration
-- [X] Bash hook
-- [X] Zsh hook
-- [X] Fish hook
 
 ## Contributing
 
