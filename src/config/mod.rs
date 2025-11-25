@@ -1,10 +1,56 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
 pub mod loader;
+
+/// Custom deserializer for extends field that accepts both String and Vec<String>
+fn deserialize_extends<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct ExtendsVisitor;
+
+    impl<'de> Visitor<'de> for ExtendsVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string or list of strings")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value.to_string()])
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value])
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                vec.push(value);
+            }
+            Ok(vec)
+        }
+    }
+
+    deserializer.deserialize_any(ExtendsVisitor)
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -31,8 +77,8 @@ pub struct Entry {
     pub entry_type: EntryType,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    #[serde(default)]
-    pub extends: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_extends")]
+    pub extends: Vec<String>,
     #[serde(default)]
     pub share: Vec<String>,
     #[serde(default)]
@@ -140,25 +186,58 @@ impl Config {
             .map(|entry| entry.clone().into())
     }
 
-    /// Merge command config with its template (if extends is set)
-    pub fn merge_with_template(&self, mut cmd_config: Entry) -> Entry {
-        if let Some(extends) = &cmd_config.extends {
-            if let Some(template) = self.get_model(extends) {
-                // Merge template config into command config
-                cmd_config.share.extend(template.share.clone());
-                cmd_config.bind.extend(template.bind.clone());
-                cmd_config.ro_bind.extend(template.ro_bind.clone());
-                cmd_config.dev_bind.extend(template.dev_bind.clone());
-                cmd_config.tmpfs.extend(template.tmpfs.clone());
-                // Merge env vars (command-specific takes precedence)
-                for (key, value) in template.env.iter() {
-                    cmd_config.env.entry(key.clone()).or_insert(value.clone());
-                }
-                cmd_config.unset_env.extend(template.unset_env.clone());
+    /// Merge command config with its templates (if extends is set)
+    /// Models are applied in order, with later models overriding earlier ones
+    pub fn merge_with_template(&self, cmd_config: Entry) -> Entry {
+        // Save the command's original values to apply at the end
+        let cmd_share = cmd_config.share.clone();
+        let cmd_bind = cmd_config.bind.clone();
+        let cmd_ro_bind = cmd_config.ro_bind.clone();
+        let cmd_dev_bind = cmd_config.dev_bind.clone();
+        let cmd_tmpfs = cmd_config.tmpfs.clone();
+        let cmd_unset_env = cmd_config.unset_env.clone();
+        let cmd_env = cmd_config.env.clone();
+
+        let mut result = Entry {
+            entry_type: cmd_config.entry_type.clone(),
+            enabled: cmd_config.enabled,
+            extends: vec![], // Clear extends after processing
+            share: vec![],
+            bind: vec![],
+            ro_bind: vec![],
+            dev_bind: vec![],
+            tmpfs: vec![],
+            env: HashMap::new(),
+            unset_env: vec![],
+        };
+
+        // Iterate over each model in the extends list
+        for model_name in &cmd_config.extends {
+            if let Some(template) = self.get_model(model_name) {
+                // Extend arrays with template values
+                result.share.extend(template.share.clone());
+                result.bind.extend(template.bind.clone());
+                result.ro_bind.extend(template.ro_bind.clone());
+                result.dev_bind.extend(template.dev_bind.clone());
+                result.tmpfs.extend(template.tmpfs.clone());
+                result.unset_env.extend(template.unset_env.clone());
+
+                // Merge env (later templates override earlier ones)
+                result.env.extend(template.env.clone());
             }
+            // If model doesn't exist, skip it (no error)
         }
 
-        cmd_config
+        // Finally, apply command's own values (command values take precedence)
+        result.share.extend(cmd_share);
+        result.bind.extend(cmd_bind);
+        result.ro_bind.extend(cmd_ro_bind);
+        result.dev_bind.extend(cmd_dev_bind);
+        result.tmpfs.extend(cmd_tmpfs);
+        result.unset_env.extend(cmd_unset_env);
+        result.env.extend(cmd_env);
+
+        result
     }
 
     // Deprecated: use merge_with_template instead
@@ -238,7 +317,7 @@ mod tests {
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, Some("base".to_string()));
+        assert_eq!(node_cmd.extends, vec!["base"]);
         assert_eq!(node_cmd.bind, vec!["~/.npm:~/.npm"]);
     }
 
@@ -423,14 +502,14 @@ mod tests {
 
         // Test node with minimal template
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, Some("minimal".to_string()));
+        assert_eq!(node_cmd.extends, vec!["minimal"]);
         let merged_node = config.merge_with_template(node_cmd);
         assert_eq!(merged_node.share, vec!["user", "network"]);
         assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
 
         // Test python with strict template
         let python_cmd = config.get_command("python").unwrap();
-        assert_eq!(python_cmd.extends, Some("strict".to_string()));
+        assert_eq!(python_cmd.extends, vec!["strict"]);
         let merged_python = config.merge_with_template(python_cmd);
         assert_eq!(merged_python.share, vec!["user"]);
         assert_eq!(merged_python.ro_bind, vec!["/usr"]);
@@ -512,7 +591,7 @@ mod tests {
         assert!(with_network.contains_key("rust"));
 
         // Filter entries that extend base
-        let extends_base = config.get_entries_with(|e| e.extends == Some("base".to_string()));
+        let extends_base = config.get_entries_with(|e| e.extends.contains(&"base".to_string()));
         assert_eq!(extends_base.len(), 3);
 
         // Complex filter: enabled commands with bind
@@ -794,5 +873,198 @@ mod tests {
 
         assert_eq!(commands.len(), 1);
         assert!(commands.contains_key("node"));
+    }
+
+    #[test]
+    fn test_extends_single_string_syntax() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+
+            node:
+              extends: base
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        assert_eq!(node_cmd.extends, vec!["base"]);
+    }
+
+    #[test]
+    fn test_extends_list_syntax_multiple_models() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+
+            network:
+              type: model
+              share:
+                - network
+
+            node:
+              extends: [base, network]
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        assert_eq!(node_cmd.extends, vec!["base", "network"]);
+    }
+
+    #[test]
+    fn test_extends_models_applied_in_order() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+              ro_bind:
+                - /usr
+
+            network:
+              type: model
+              share:
+                - network
+              ro_bind:
+                - /etc/resolv.conf
+
+            node:
+              extends: [base, network]
+              bind:
+                - ~/.npm:~/.npm
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        let merged = config.merge_with_template(node_cmd);
+
+        // Should have shares from both models
+        assert!(merged.share.contains(&"user".to_string()));
+        assert!(merged.share.contains(&"network".to_string()));
+
+        // Should have ro_bind from both models (base first, then network)
+        assert!(merged.ro_bind.contains(&"/usr".to_string()));
+        assert!(merged.ro_bind.contains(&"/etc/resolv.conf".to_string()));
+
+        // Should have bind from command itself
+        assert!(merged.bind.contains(&"~/.npm:~/.npm".to_string()));
+    }
+
+    #[test]
+    fn test_extends_later_model_overrides_earlier_env() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              env:
+                KEY: base_value
+                OTHER: keep_this
+
+            override:
+              type: model
+              env:
+                KEY: override_value
+
+            node:
+              extends: [base, override]
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        let merged = config.merge_with_template(node_cmd);
+
+        // Later model's env should override earlier model's env
+        assert_eq!(merged.env.get("KEY"), Some(&"override_value".to_string()));
+        // Env from first model that wasn't overridden should remain
+        assert_eq!(merged.env.get("OTHER"), Some(&"keep_this".to_string()));
+    }
+
+    #[test]
+    fn test_extends_entry_settings_override_all_models() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              env:
+                KEY: base_value
+
+            network:
+              type: model
+              env:
+                KEY: network_value
+
+            node:
+              extends: [base, network]
+              env:
+                KEY: command_value
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        let merged = config.merge_with_template(node_cmd);
+
+        // Command's own env should override all models
+        assert_eq!(merged.env.get("KEY"), Some(&"command_value".to_string()));
+    }
+
+    #[test]
+    fn test_extends_skip_nonexistent_model() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              share:
+                - user
+
+            network:
+              type: model
+              share:
+                - network
+
+            node:
+              extends: [base, nonexistent, network]
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        let merged = config.merge_with_template(node_cmd);
+
+        // Should apply base and network, skip nonexistent
+        assert!(merged.share.contains(&"user".to_string()));
+        assert!(merged.share.contains(&"network".to_string()));
+    }
+
+    #[test]
+    fn test_extends_all_models_nonexistent() {
+        let config = Config::from_yaml(indoc! {"
+            node:
+              extends: [foo, bar]
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        let merged = config.merge_with_template(node_cmd);
+
+        // Should just have command's own settings
+        assert_eq!(merged.share, vec!["user"]);
+    }
+
+    #[test]
+    fn test_extends_empty_list() {
+        let config = Config::from_yaml(indoc! {"
+            node:
+              extends: []
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        assert_eq!(node_cmd.extends, Vec::<String>::new());
+
+        let merged = config.merge_with_template(node_cmd);
+        assert_eq!(merged.share, vec!["user"]);
     }
 }

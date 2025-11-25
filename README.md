@@ -120,12 +120,17 @@ base:
     - /usr
     - /lib
 
+network:
+  type: model
+  share:
+    - network
+
 # Define command-specific configurations
 node:
-  extends: base             # Optional: extend a model
+  extends: base             # Optional: extend a single model
+  # OR
+  extends: [base, network]  # Optional: extend multiple models (applied in order)
   enabled: true             # Optional: enable this command (default: true)
-  share:                    # Share specific namespaces
-    - network
   bind:                     # Read-write mounts
     - ~/.npm:~/.npm
     - $PWD:/workspace

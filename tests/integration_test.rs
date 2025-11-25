@@ -43,7 +43,7 @@ fn test_full_config_loading_and_execution() {
     // Verify node command
     let node_cmd = config.get_command("node").unwrap();
     assert!(node_cmd.enabled);
-    assert_eq!(node_cmd.extends, Some("base".to_string()));
+    assert_eq!(node_cmd.extends, vec!["base"]);
 
     // Verify merging with base
     let merged = config.merge_with_base(node_cmd);
@@ -65,7 +65,7 @@ fn test_bwrap_builder_integration() {
     let mut config = Entry {
         entry_type: EntryType::Command,
         enabled: true,
-        extends: None,
+        extends: vec![],
         share: vec![],
         bind: vec!["/tmp:/tmp".to_string()],
         ro_bind: vec!["/usr".to_string()],
@@ -215,7 +215,7 @@ fn test_command_show_formatting() {
     let config = Entry {
         entry_type: EntryType::Command,
         enabled: true,
-        extends: None,
+        extends: vec![],
         share: vec![],
         bind: vec![],
         ro_bind: vec!["/usr".to_string()],
@@ -527,7 +527,7 @@ fn test_user_config_loaded_when_no_local_config() {
 
     let git_cmd = git_cmd.unwrap();
     assert!(git_cmd.enabled);
-    assert_eq!(git_cmd.extends, Some("base".to_string()));
+    assert_eq!(git_cmd.extends, vec!["base"]);
 
     // Verify merging with base works
     let merged = config.merge_with_base(git_cmd);

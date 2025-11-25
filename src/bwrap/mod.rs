@@ -126,7 +126,7 @@ mod tests {
         Entry {
             entry_type: EntryType::Command,
             enabled: true,
-            extends: None,
+            extends: vec![],
             share: vec![],
             bind: vec![],
             ro_bind: vec![],
