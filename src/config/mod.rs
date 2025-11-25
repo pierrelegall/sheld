@@ -77,6 +77,8 @@ pub struct Entry {
     pub entry_type: EntryType,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    #[serde(default = "default_override", rename = "override")]
+    pub override_parent: bool,
     #[serde(default, deserialize_with = "deserialize_extends")]
     pub extends: Vec<String>,
     #[serde(default)]
@@ -97,6 +99,95 @@ pub struct Entry {
 
 fn default_enabled() -> bool {
     true
+}
+
+fn default_override() -> bool {
+    false
+}
+
+/// Deduplicate a vector, preserving order (first occurrence kept)
+fn deduplicate_vec(vec: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    vec.into_iter()
+        .filter(|item| seen.insert(item.clone()))
+        .collect()
+}
+
+impl Entry {
+    /// Deep merge parent and child entries
+    /// - Arrays: parent items first, then unique child items (deduplicated)
+    /// - env HashMap: parent + child, child wins on conflicts
+    /// - Scalar fields: child value wins
+    /// - Empty child arrays preserve parent arrays
+    pub fn deep_merge(parent: Entry, child: Entry) -> Entry {
+        // Merge arrays: parent first, then unique child items
+        let mut merged_share = parent.share.clone();
+        merged_share.extend(child.share.clone());
+        let merged_share = if child.share.is_empty() {
+            parent.share
+        } else {
+            deduplicate_vec(merged_share)
+        };
+
+        let mut merged_bind = parent.bind.clone();
+        merged_bind.extend(child.bind.clone());
+        let merged_bind = if child.bind.is_empty() {
+            parent.bind
+        } else {
+            deduplicate_vec(merged_bind)
+        };
+
+        let mut merged_ro_bind = parent.ro_bind.clone();
+        merged_ro_bind.extend(child.ro_bind.clone());
+        let merged_ro_bind = if child.ro_bind.is_empty() {
+            parent.ro_bind
+        } else {
+            deduplicate_vec(merged_ro_bind)
+        };
+
+        let mut merged_dev_bind = parent.dev_bind.clone();
+        merged_dev_bind.extend(child.dev_bind.clone());
+        let merged_dev_bind = if child.dev_bind.is_empty() {
+            parent.dev_bind
+        } else {
+            deduplicate_vec(merged_dev_bind)
+        };
+
+        let mut merged_tmpfs = parent.tmpfs.clone();
+        merged_tmpfs.extend(child.tmpfs.clone());
+        let merged_tmpfs = if child.tmpfs.is_empty() {
+            parent.tmpfs
+        } else {
+            deduplicate_vec(merged_tmpfs)
+        };
+
+        let mut merged_unset_env = parent.unset_env.clone();
+        merged_unset_env.extend(child.unset_env.clone());
+        let merged_unset_env = if child.unset_env.is_empty() {
+            parent.unset_env
+        } else {
+            deduplicate_vec(merged_unset_env)
+        };
+
+        // Merge env: parent + child, child wins on conflicts
+        let mut merged_env = parent.env.clone();
+        merged_env.extend(child.env);
+
+        // Scalar fields: child wins
+        Entry {
+            entry_type: child.entry_type,
+            enabled: child.enabled,
+            override_parent: child.override_parent,
+            extends: child.extends,
+            share: merged_share,
+            bind: merged_bind,
+            ro_bind: merged_ro_bind,
+            dev_bind: merged_dev_bind,
+            tmpfs: merged_tmpfs,
+            env: merged_env,
+            unset_env: merged_unset_env,
+        }
+    }
 }
 
 impl Config {
@@ -201,6 +292,7 @@ impl Config {
         let mut result = Entry {
             entry_type: cmd_config.entry_type.clone(),
             enabled: cmd_config.enabled,
+            override_parent: cmd_config.override_parent,
             extends: vec![], // Clear extends after processing
             share: vec![],
             bind: vec![],
@@ -246,21 +338,35 @@ impl Config {
     }
 
     /// Merge another config into this one
-    /// - Entries with the same name: override takes precedence
-    /// - Special case: if override has enabled=false, skip merge and keep base entry
+    /// - Entries with the same name: depends on override field
+    ///   - override: true -> child completely replaces parent
+    ///   - override: false (default) -> deep merge parent and child
+    /// - Special case: if child has enabled=false, skip merge and keep parent entry
     /// - Distinct entries: both are included
-    pub fn merge(base: Config, override_config: Config) -> Config {
-        let mut merged_entries = base.entries.clone();
+    pub fn merge(parent: Config, child: Config) -> Config {
+        let mut merged_entries = parent.entries.clone();
 
-        for (name, override_entry) in override_config.entries {
-            // If override entry is disabled and base has this entry, skip the override
-            // (treat disabled in override as "use base version instead")
-            if !override_entry.enabled && merged_entries.contains_key(&name) {
+        for (name, child_entry) in child.entries {
+            // If child entry is disabled and parent has this entry, skip the child
+            // (treat disabled in child as "use parent version instead")
+            if !child_entry.enabled && merged_entries.contains_key(&name) {
                 continue;
             }
 
-            // Otherwise, override completely replaces base entry (or adds new entry)
-            merged_entries.insert(name, override_entry);
+            // Check if parent has an entry with the same name
+            if let Some(parent_entry) = merged_entries.get(&name) {
+                if child_entry.override_parent {
+                    // override: true -> child completely replaces parent
+                    merged_entries.insert(name, child_entry);
+                } else {
+                    // override: false (default) -> deep merge
+                    let merged_entry = Entry::deep_merge(parent_entry.clone(), child_entry);
+                    merged_entries.insert(name, merged_entry);
+                }
+            } else {
+                // Parent doesn't have this entry, just add child entry
+                merged_entries.insert(name, child_entry);
+            }
         }
 
         Config {
@@ -744,6 +850,7 @@ mod tests {
         let local_config = Config::from_yaml(indoc! {"
             node:
               enabled: true
+              override: true
               share:
                 - network
         "})
@@ -752,7 +859,7 @@ mod tests {
         let merged = Config::merge(user_config, local_config);
         let node_cmd = merged.get_command("node").unwrap();
 
-        // Local config should win
+        // Local config should win (due to override: true)
         assert_eq!(node_cmd.share, vec!["network"]);
     }
 
@@ -799,6 +906,7 @@ mod tests {
         let local_config = Config::from_yaml(indoc! {"
             base:
               type: model
+              override: true
               share:
                 - network
         "})
@@ -807,7 +915,7 @@ mod tests {
         let merged = Config::merge(user_config, local_config);
         let base_model = merged.get_model("base").unwrap();
 
-        // Local model should completely replace user model
+        // Local model should completely replace user model (due to override: true)
         assert_eq!(base_model.share, vec!["network"]);
     }
 
@@ -873,6 +981,174 @@ mod tests {
 
         assert_eq!(commands.len(), 1);
         assert!(commands.contains_key("node"));
+    }
+
+    #[test]
+    fn test_override_defaults_to_false() {
+        let config = Config::from_yaml(indoc! {"
+            node:
+              enabled: true
+        "})
+        .unwrap();
+
+        let node_cmd = config.get_command("node").unwrap();
+        assert_eq!(node_cmd.override_parent, false);
+    }
+
+    #[test]
+    fn test_override_true_replaces_parent() {
+        let parent_config = Config::from_yaml(indoc! {"
+            node:
+              share:
+                - user
+                - pid
+              bind:
+                - /usr:/usr
+        "})
+        .unwrap();
+
+        let child_config = Config::from_yaml(indoc! {"
+            node:
+              override: true
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent_config, child_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // Child completely replaces parent
+        assert_eq!(node_cmd.share, vec!["network"]);
+        assert!(node_cmd.bind.is_empty());
+    }
+
+    #[test]
+    fn test_override_false_deep_merges_arrays() {
+        let parent_config = Config::from_yaml(indoc! {"
+            node:
+              share:
+                - user
+                - pid
+        "})
+        .unwrap();
+
+        let child_config = Config::from_yaml(indoc! {"
+            node:
+              override: false
+              share:
+                - network
+                - pid
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent_config, child_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // Arrays merged and deduplicated (parent first, then unique child items)
+        assert_eq!(node_cmd.share, vec!["user", "pid", "network"]);
+    }
+
+    #[test]
+    fn test_override_false_merges_env() {
+        let parent_config = Config::from_yaml(indoc! {"
+            node:
+              env:
+                FROM: parent
+                KEEP: this
+        "})
+        .unwrap();
+
+        let child_config = Config::from_yaml(indoc! {"
+            node:
+              env:
+                FROM: child
+                NEW: value
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent_config, child_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // Env merged, child wins on conflicts
+        assert_eq!(node_cmd.env.get("FROM"), Some(&"child".to_string()));
+        assert_eq!(node_cmd.env.get("KEEP"), Some(&"this".to_string()));
+        assert_eq!(node_cmd.env.get("NEW"), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_empty_child_arrays_preserve_parent() {
+        let parent_config = Config::from_yaml(indoc! {"
+            node:
+              share:
+                - user
+                - network
+        "})
+        .unwrap();
+
+        let child_config = Config::from_yaml(indoc! {"
+            node:
+              share: []
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent_config, child_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // Empty child array preserves parent array
+        assert_eq!(node_cmd.share, vec!["user", "network"]);
+    }
+
+    #[test]
+    fn test_enabled_false_with_override_false() {
+        let parent_config = Config::from_yaml(indoc! {"
+            node:
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let child_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: false
+              override: false
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent_config, child_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // enabled: false takes precedence, parent entry is used
+        assert!(node_cmd.enabled);
+        assert_eq!(node_cmd.share, vec!["user"]);
+    }
+
+    #[test]
+    fn test_enabled_false_with_override_true() {
+        let parent_config = Config::from_yaml(indoc! {"
+            node:
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let child_config = Config::from_yaml(indoc! {"
+            node:
+              enabled: false
+              override: true
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent_config, child_config);
+        let node_cmd = merged.get_command("node").unwrap();
+
+        // enabled: false takes precedence regardless of override value
+        assert!(node_cmd.enabled);
+        assert_eq!(node_cmd.share, vec!["user"]);
     }
 
     #[test]

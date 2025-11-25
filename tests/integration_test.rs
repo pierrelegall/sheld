@@ -65,6 +65,7 @@ fn test_bwrap_builder_integration() {
     let mut config = Entry {
         entry_type: EntryType::Command,
         enabled: true,
+        override_parent: false,
         extends: vec![],
         share: vec![],
         bind: vec!["/tmp:/tmp".to_string()],
@@ -215,6 +216,7 @@ fn test_command_show_formatting() {
     let config = Entry {
         entry_type: EntryType::Command,
         enabled: true,
+        override_parent: false,
         extends: vec![],
         share: vec![],
         bind: vec![],

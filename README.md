@@ -103,10 +103,16 @@ Shwrap merges configuration files to combine global defaults with project-specif
 2. **Local**: `.shwrap.yaml` in current directory or parent directories - Project-specific overrides
 
 When both files exist, they are merged with local entries taking precedence:
-- Commands/models with the same name: local completely replaces user
+- Commands/models with the same name:
+  - `override: false` (default): Deep merge (parent + child settings combined)
+  - `override: true`: Child completely replaces parent
 - Distinct commands/models: both are included
 - Local `enabled: false`: use user version instead (skip local override)
 - Local commands can extend models defined in user config
+- Deep merge behavior:
+  - Arrays: Parent items first, then unique child items (deduplicated)
+  - env HashMap: Parent + child, child wins on key conflicts
+  - Scalar fields: Child value wins
 
 ### Configuration syntax
 
@@ -131,6 +137,7 @@ node:
   # OR
   extends: [base, network]  # Optional: extend multiple models (applied in order)
   enabled: true             # Optional: enable this command (default: true)
+  override: false           # Optional: false=deep merge with parent, true=replace parent (default: false)
   bind:                     # Read-write mounts
     - ~/.npm:~/.npm
     - $PWD:/workspace

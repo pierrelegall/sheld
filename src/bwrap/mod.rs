@@ -126,6 +126,7 @@ mod tests {
         Entry {
             entry_type: EntryType::Command,
             enabled: true,
+            override_parent: false,
             extends: vec![],
             share: vec![],
             bind: vec![],
