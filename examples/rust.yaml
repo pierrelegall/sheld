@@ -17,16 +17,16 @@ cargo:
   share:
     - network    # cargo needs network for crate downloads
   bind:
-    - ~/.cargo:~/.cargo
-    - ~/.rustup:~/.rustup
-    - $PWD:/workspace
+    - [~/.cargo, ~/.cargo]
+    - [~/.rustup, ~/.rustup]
+    - [$PWD, /workspace]
 
 rustc:
   enabled: true
   extends: base
   bind:
-    - ~/.rustup:~/.rustup
-    - $PWD:/workspace
+    - [~/.rustup, ~/.rustup]
+    - [$PWD, /workspace]
 
 rustup:
   enabled: true
@@ -34,4 +34,4 @@ rustup:
   share:
     - network    # rustup needs network for toolchain downloads
   bind:
-    - ~/.rustup:~/.rustup
+    - [~/.rustup, ~/.rustup]

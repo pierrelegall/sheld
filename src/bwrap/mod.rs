@@ -47,17 +47,12 @@ impl WrappedCommandBuilder {
         }
 
         // Handle custom bind mounts
-        for bind in &self.config.bind {
-            let parts: Vec<&str> = bind.split(':').collect();
-            if parts.len() == 2 {
-                let src = shellexpand::full(parts[0]).unwrap_or_else(|_| parts[0].into());
-                let dst = shellexpand::full(parts[1]).unwrap_or_else(|_| parts[1].into());
-                args.push("--bind".to_string());
-                args.push(src.to_string());
-                args.push(dst.to_string());
-            } else {
-                eprintln!("Warning: invalid bind format '{}'", bind);
-            }
+        for (src, dst) in &self.config.bind {
+            let src_expanded = shellexpand::full(src).unwrap_or_else(|_| src.into());
+            let dst_expanded = shellexpand::full(dst).unwrap_or_else(|_| dst.into());
+            args.push("--bind".to_string());
+            args.push(src_expanded.to_string());
+            args.push(dst_expanded.to_string());
         }
 
         // Handle read-only binds
@@ -77,17 +72,12 @@ impl WrappedCommandBuilder {
         }
 
         // Handle bind-try
-        for bind in &self.config.bind_try {
-            let parts: Vec<&str> = bind.split(':').collect();
-            if parts.len() == 2 {
-                let src = shellexpand::full(parts[0]).unwrap_or_else(|_| parts[0].into());
-                let dst = shellexpand::full(parts[1]).unwrap_or_else(|_| parts[1].into());
-                args.push("--bind-try".to_string());
-                args.push(src.to_string());
-                args.push(dst.to_string());
-            } else {
-                eprintln!("Warning: invalid bind_try format '{}'", bind);
-            }
+        for (src, dst) in &self.config.bind_try {
+            let src_expanded = shellexpand::full(src).unwrap_or_else(|_| src.into());
+            let dst_expanded = shellexpand::full(dst).unwrap_or_else(|_| dst.into());
+            args.push("--bind-try".to_string());
+            args.push(src_expanded.to_string());
+            args.push(dst_expanded.to_string());
         }
 
         // Handle read-only bind-try
@@ -236,7 +226,7 @@ mod tests {
     #[test]
     fn test_build_args_bind() {
         let mut config = create_test_config();
-        config.bind = vec!["/src:/dest".to_string()];
+        config.bind = vec![("/src".to_string(), "/dest".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -381,7 +371,7 @@ mod tests {
     #[test]
     fn test_bind_with_tilde() {
         let mut config = create_test_config();
-        config.bind = vec!["~/.config:~/.config".to_string()];
+        config.bind = vec![("~/.config".to_string(), "~/.config".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -392,20 +382,6 @@ mod tests {
         assert!(!args[bind_idx + 1].contains('~'));
     }
 
-    #[test]
-    fn test_invalid_bind_format() {
-        let mut config = create_test_config();
-        // Invalid bind format (should be src:dest)
-        config.bind = vec!["invalid".to_string()];
-
-        let builder = WrappedCommandBuilder::new(config);
-        let args = builder.build_args();
-
-        // Should not add invalid bind to args (only warning printed)
-        // Count --bind flags, should be 0 for invalid format
-        let bind_count = args.iter().filter(|x| *x == "--bind").count();
-        assert_eq!(bind_count, 0);
-    }
 
     #[test]
     fn test_unshare_all_by_default() {
@@ -468,7 +444,7 @@ mod tests {
     #[test]
     fn test_bind_try() {
         let mut config = create_test_config();
-        config.bind_try = vec!["~/.cache:~/.cache".to_string()];
+        config.bind_try = vec![("~/.cache".to_string(), "~/.cache".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -620,7 +596,7 @@ mod tests {
     #[test]
     fn test_all_new_options_combined() {
         let mut config = create_test_config();
-        config.bind_try = vec!["/tmp:/tmp".to_string()];
+        config.bind_try = vec![("/tmp".to_string(), "/tmp".to_string())];
         config.ro_bind_try = vec!["/usr".to_string()];
         config.chdir = Some("/workspace".to_string());
         config.die_with_parent = true;

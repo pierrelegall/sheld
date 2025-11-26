@@ -26,7 +26,7 @@ fn test_full_config_loading_and_execution() {
           extends: base
           enabled: true
           bind:
-            - ~/.npm:~/.npm
+            - [~/.npm, ~/.npm]
           env:
             NODE_ENV: production
 
@@ -68,7 +68,7 @@ fn test_bwrap_builder_integration() {
         override_parent: false,
         extends: vec![],
         share: vec![],
-        bind: vec!["/tmp:/tmp".to_string()],
+        bind: vec![("/tmp".to_string(), "/tmp".to_string())],
         ro_bind: vec!["/usr".to_string()],
         dev_bind: vec![],
         bind_try: vec![],
@@ -116,7 +116,7 @@ fn test_config_with_all_features() {
             - /usr
             - /lib
           bind:
-            - /src:/dest
+            - [/src, /dest]
 
         test:
           extends: base
@@ -300,7 +300,7 @@ fn test_custom_template_name() {
         node:
           extends: minimal
           bind:
-            - ~/.npm:~/.npm
+            - [~/.npm, ~/.npm]
 
         python:
           extends: strict
@@ -311,7 +311,7 @@ fn test_custom_template_name() {
     let node = config.get_command("node").unwrap();
     let merged_node = config.merge_with_template(node);
     assert_eq!(merged_node.share, vec!["user", "network"]);
-    assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
+    assert_eq!(merged_node.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
 
     // Test python with strict template
     let python = config.get_command("python").unwrap();
@@ -508,7 +508,7 @@ fn test_user_config_loaded_when_no_local_config() {
           share:
             - network
           bind:
-            - ~/.gitconfig:~/.gitconfig
+            - [~/.gitconfig, ~/.gitconfig]
           env:
             GIT_AUTHOR_NAME: TestUser
     "};

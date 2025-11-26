@@ -17,6 +17,6 @@ go:
   share:
     - network    # go needs network for module downloads
   bind:
-    - ~/go:~/go
-    - ~/.cache/go-build:~/.cache/go-build
-    - $PWD:/workspace
+    - [~/go, ~/go]
+    - [~/.cache/go-build, ~/.cache/go-build]
+    - [$PWD, /workspace]

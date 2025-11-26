@@ -48,8 +48,8 @@ node:
     - user
     - network
   bind:
-    - ~/.npm:~/.npm
-    - $PWD:/workspace
+    - [~/.npm, ~/.npm]
+    - [$PWD, /workspace]
   ro_bind:
     - /usr
     - /lib
@@ -145,14 +145,14 @@ node:
   enabled: true             # Optional: enable this command (default: true)
   override: false           # Optional: false=deep merge with parent, true=replace parent (default: false)
   bind:                     # Read-write mounts
-    - ~/.npm:~/.npm
-    - $PWD:/workspace
+    - [~/.npm, ~/.npm]
+    - [$PWD, /workspace]
   ro_bind:                  # Read-only mounts
     - /etc/resolv.conf
   dev_bind:                 # Device bind mounts
     - /dev/null
   bind_try:                 # Optional: bind mounts that won't fail if source doesn't exist
-    - ~/.cache:~/.cache
+    - [~/.cache, ~/.cache]
   ro_bind_try:              # Optional: read-only bind-try mounts
     - /usr/share/fonts
   dev_bind_try:             # Optional: device bind-try mounts

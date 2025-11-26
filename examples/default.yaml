@@ -20,5 +20,5 @@
 #   share:
 #     - network     # Allow network access
 #   bind:
-#     - ~/.npm:~/.npm
-#     - $PWD:/workspace
+#     - [~/.npm, ~/.npm]
+#     - [$PWD, /workspace]

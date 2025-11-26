@@ -93,7 +93,10 @@ fn command_list_cmd(simple: bool) -> Result<()> {
                     println!("  share: {}", cmd_config.share.join(", "));
                 }
                 if !cmd_config.bind.is_empty() {
-                    println!("  bind: {}", cmd_config.bind.join(", "));
+                    let bind_str: Vec<String> = cmd_config.bind.iter()
+                        .map(|(src, dst)| format!("{}:{}", src, dst))
+                        .collect();
+                    println!("  bind: {}", bind_str.join(", "));
                 }
             }
         }

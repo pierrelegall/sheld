@@ -15,17 +15,17 @@ python:
   enabled: true
   extends: base
   bind:
-    - ~/.python_history:~/.python_history
-    - ~/.local:~/.local
-    - $PWD:/workspace
+    - [~/.python_history, ~/.python_history]
+    - [~/.local, ~/.local]
+    - [$PWD, /workspace]
 
 python3:
   enabled: true
   extends: base
   bind:
-    - ~/.python_history:~/.python_history
-    - ~/.local:~/.local
-    - $PWD:/workspace
+    - [~/.python_history, ~/.python_history]
+    - [~/.local, ~/.local]
+    - [$PWD, /workspace]
 
 pip:
   enabled: true
@@ -33,9 +33,9 @@ pip:
   share:
     - network    # pip needs network for package downloads
   bind:
-    - ~/.cache/pip:~/.cache/pip
-    - ~/.local:~/.local
-    - $PWD:/workspace
+    - [~/.cache/pip, ~/.cache/pip]
+    - [~/.local, ~/.local]
+    - [$PWD, /workspace]
 
 pip3:
   enabled: true
@@ -43,6 +43,6 @@ pip3:
   share:
     - network    # pip3 needs network for package downloads
   bind:
-    - ~/.cache/pip:~/.cache/pip
-    - ~/.local:~/.local
-    - $PWD:/workspace
+    - [~/.cache/pip, ~/.cache/pip]
+    - [~/.local, ~/.local]
+    - [$PWD, /workspace]

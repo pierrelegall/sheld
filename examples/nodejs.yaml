@@ -18,15 +18,15 @@ npm:
   share:
     - network    # npm needs network for package downloads
   bind:
-    - ~/.npm:~/.npm
-    - $PWD:/workspace
+    - [~/.npm, ~/.npm]
+    - [$PWD, /workspace]
 
 node:
   enabled: true
   extends: base
   bind:
-    - ~/.node_repl_history:~/.node_repl_history
-    - $PWD:/workspace
+    - [~/.node_repl_history, ~/.node_repl_history]
+    - [$PWD, /workspace]
 
 npx:
   enabled: true
@@ -34,5 +34,5 @@ npx:
   share:
     - network    # npx needs network for package downloads
   bind:
-    - ~/.npm:~/.npm
-    - $PWD:/workspace
+    - [~/.npm, ~/.npm]
+    - [$PWD, /workspace]

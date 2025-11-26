@@ -15,7 +15,7 @@ ruby:
   enabled: true
   extends: base
   bind:
-    - $PWD:/workspace
+    - [$PWD, /workspace]
 
 gem:
   enabled: true
@@ -23,8 +23,8 @@ gem:
   share:
     - network    # gem needs network for package downloads
   bind:
-    - ~/.gem:~/.gem
-    - $PWD:/workspace
+    - [~/.gem, ~/.gem]
+    - [$PWD, /workspace]
 
 bundle:
   enabled: true
@@ -32,6 +32,6 @@ bundle:
   share:
     - network    # bundle needs network for package downloads
   bind:
-    - ~/.bundle:~/.bundle
-    - ~/.gem:~/.gem
-    - $PWD:/workspace
+    - [~/.bundle, ~/.bundle]
+    - [~/.gem, ~/.gem]
+    - [$PWD, /workspace]

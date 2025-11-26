@@ -84,13 +84,13 @@ pub struct Entry {
     #[serde(default)]
     pub share: Vec<String>,
     #[serde(default)]
-    pub bind: Vec<String>,
+    pub bind: Vec<(String, String)>,
     #[serde(default)]
     pub ro_bind: Vec<String>,
     #[serde(default)]
     pub dev_bind: Vec<String>,
     #[serde(default)]
-    pub bind_try: Vec<String>,
+    pub bind_try: Vec<(String, String)>,
     #[serde(default)]
     pub ro_bind_try: Vec<String>,
     #[serde(default)]
@@ -135,6 +135,14 @@ fn deduplicate_vec(vec: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Deduplicate a vector of tuples, preserving order (first occurrence kept)
+fn deduplicate_vec_tuples(vec: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    vec.into_iter()
+        .filter(|item| seen.insert(item.clone()))
+        .collect()
+}
+
 impl Entry {
     /// Deep merge parent and child entries
     /// - Arrays: parent items first, then unique child items (deduplicated)
@@ -156,7 +164,7 @@ impl Entry {
         let merged_bind = if child.bind.is_empty() {
             parent.bind
         } else {
-            deduplicate_vec(merged_bind)
+            deduplicate_vec_tuples(merged_bind)
         };
 
         let mut merged_ro_bind = parent.ro_bind.clone();
@@ -201,7 +209,7 @@ impl Entry {
         let merged_bind_try = if child.bind_try.is_empty() {
             parent.bind_try
         } else {
-            deduplicate_vec(merged_bind_try)
+            deduplicate_vec_tuples(merged_bind_try)
         };
 
         let mut merged_ro_bind_try = parent.ro_bind_try.clone();
@@ -473,7 +481,7 @@ mod tests {
                 - user
                 - network
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
         let commands = config.get_commands();
@@ -483,7 +491,7 @@ mod tests {
         let node_cmd = commands.get("node").unwrap();
         assert!(node_cmd.enabled);
         assert_eq!(node_cmd.share, vec!["user", "network"]);
-        assert_eq!(node_cmd.bind, vec!["~/.npm:~/.npm"]);
+        assert_eq!(node_cmd.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
     #[test]
@@ -500,13 +508,13 @@ mod tests {
             node:
               extends: base
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.extends, vec!["base"]);
-        assert_eq!(node_cmd.bind, vec!["~/.npm:~/.npm"]);
+        assert_eq!(node_cmd.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
     #[test]
@@ -537,7 +545,7 @@ mod tests {
             node:
               extends: base
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
@@ -546,7 +554,7 @@ mod tests {
         // Should have both base and command-specific settings
         assert_eq!(merged.share, vec!["user"]);
         assert_eq!(merged.ro_bind, vec!["/usr"]);
-        assert_eq!(merged.bind, vec!["~/.npm:~/.npm"]);
+        assert_eq!(merged.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
     #[test]
@@ -559,7 +567,7 @@ mod tests {
 
             node:
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
@@ -676,11 +684,11 @@ mod tests {
             node:
               extends: minimal
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
             python:
               extends: strict
               bind:
-                - ~/.local:~/.local
+                - [~/.local, ~/.local]
         "})
         .unwrap();
 
@@ -693,7 +701,7 @@ mod tests {
         assert_eq!(node_cmd.extends, vec!["minimal"]);
         let merged_node = config.merge_with_template(node_cmd);
         assert_eq!(merged_node.share, vec!["user", "network"]);
-        assert_eq!(merged_node.bind, vec!["~/.npm:~/.npm"]);
+        assert_eq!(merged_node.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
 
         // Test python with strict template
         let python_cmd = config.get_command("python").unwrap();
@@ -701,7 +709,7 @@ mod tests {
         let merged_python = config.merge_with_template(python_cmd);
         assert_eq!(merged_python.share, vec!["user"]);
         assert_eq!(merged_python.ro_bind, vec!["/usr"]);
-        assert_eq!(merged_python.bind, vec!["~/.local:~/.local"]);
+        assert_eq!(merged_python.bind, vec![("~/.local".to_string(), "~/.local".to_string())]);
     }
 
     #[test]
@@ -715,7 +723,7 @@ mod tests {
             node:
               extends: nonexistent
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
@@ -738,13 +746,13 @@ mod tests {
               enabled: true
               extends: base
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
 
             python:
               enabled: false
               extends: base
               bind:
-                - ~/.local:~/.local
+                - [~/.local, ~/.local]
 
             rust:
               enabled: true
@@ -805,7 +813,7 @@ mod tests {
               share:
                 - network
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
 
             python:
               enabled: false
@@ -961,7 +969,7 @@ mod tests {
             node:
               extends: base
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
 
@@ -972,7 +980,7 @@ mod tests {
         // Should inherit from user's base model
         assert_eq!(with_template.share, vec!["user"]);
         assert_eq!(with_template.ro_bind, vec!["/usr"]);
-        assert_eq!(with_template.bind, vec!["~/.npm:~/.npm"]);
+        assert_eq!(with_template.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
     #[test]
@@ -1085,7 +1093,7 @@ mod tests {
                 - user
                 - pid
               bind:
-                - /usr:/usr
+                - [/usr, /usr]
         "})
         .unwrap();
 
@@ -1292,7 +1300,7 @@ mod tests {
             node:
               extends: [base, network]
               bind:
-                - ~/.npm:~/.npm
+                - [~/.npm, ~/.npm]
         "})
         .unwrap();
 
@@ -1308,7 +1316,7 @@ mod tests {
         assert!(merged.ro_bind.contains(&"/etc/resolv.conf".to_string()));
 
         // Should have bind from command itself
-        assert!(merged.bind.contains(&"~/.npm:~/.npm".to_string()));
+        assert!(merged.bind.contains(&("~/.npm".to_string(), "~/.npm".to_string())));
     }
 
     #[test]
