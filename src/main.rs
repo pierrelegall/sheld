@@ -37,6 +37,9 @@ fn main() -> Result<()> {
             CommandAction::Show { command, args } => {
                 command_show_cmd(&command, &args)?;
             }
+            CommandAction::Bypass { command, args } => {
+                command_bypass_cmd(&command, &args)?;
+            }
         },
         Subject::ShellHook { action } => match action {
             ShellHookAction::Get { shell } => {
@@ -113,6 +116,21 @@ fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
     println!("{}", cmd_line);
 
     Ok(())
+}
+
+fn command_bypass_cmd(command: &str, args: &[String]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    // Execute the command directly without any sandboxing
+    let mut cmd = Command::new(command);
+    cmd.args(args);
+
+    // Use exec to replace the current process
+    let error = cmd.exec();
+
+    // If exec returns, it failed
+    Err(anyhow::Error::from(error).context(format!("Failed to execute command '{}'", command)))
 }
 
 fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {

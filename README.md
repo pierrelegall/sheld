@@ -65,6 +65,12 @@ shwrap command exec node app.js
 
 Or use the shell hook. Shell hook automatically wrap configured commands when you execute them. It automatically reloads command configurations on directory change.
 
+To bypass the hook system and run a command without sandboxing:
+
+```sh
+shwrap command bypass node app.js
+```
+
 **Note**: To enable debug logs, set `SHWRAP_DEBUG` to `1`.
 
 ## Setup shell hook

@@ -83,6 +83,16 @@ pub enum CommandAction {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// Execute a command without sandboxing (bypass hook system)
+    Bypass {
+        /// Command to execute
+        command: String,
+
+        /// Arguments to pass to the command
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
