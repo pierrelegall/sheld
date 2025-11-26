@@ -182,17 +182,6 @@ By default, **all namespaces are unshared** (isolated). Use `share` to selective
 - `uts` - Hostname
 - `cgroup` - Control groups
 
-### Templates
-
-Available templates (use with `shwrap config init --template <name>`):
-
-- `default` - Minimal starter template
-- `nodejs` - Node.js development
-- `python` - Python development
-- `ruby` - Ruby development
-- `go` - Go development
-- `rust` - Rust development
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.

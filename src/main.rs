@@ -17,8 +17,8 @@ fn main() -> Result<()> {
 
     match input.subject {
         Subject::Config { action } => match action {
-            ConfigAction::Init { template } => {
-                config_init_cmd(template)?;
+            ConfigAction::Init => {
+                config_init_cmd()?;
             }
             ConfigAction::Check { path, silent } => {
                 config_check_cmd(path, silent)?;
@@ -164,18 +164,10 @@ fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
     Ok(())
 }
 
-fn config_init_cmd(template: Option<String>) -> Result<()> {
+fn config_init_cmd() -> Result<()> {
     use std::fs;
 
-    let template_content = match template.as_deref() {
-        Some("nodejs") => include_str!("../templates/nodejs.yaml"),
-        Some("python") => include_str!("../templates/python.yaml"),
-        Some("ruby") => include_str!("../templates/ruby.yaml"),
-        Some("go") => include_str!("../templates/go.yaml"),
-        Some("rust") => include_str!("../templates/rust.yaml"),
-        None => include_str!("../templates/default.yaml"),
-        Some(other) => bail!("Unknown template: {}", other),
-    };
+    let template_content = include_str!("../examples/default.yaml");
 
     let config_path = ConfigLoader::local_config_name();
     if std::path::Path::new(config_path).exists() {
