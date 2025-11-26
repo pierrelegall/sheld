@@ -145,8 +145,20 @@ node:
     - /etc/resolv.conf
   dev_bind:                 # Device bind mounts
     - /dev/null
+  bind_try:                 # Optional: bind mounts that won't fail if source doesn't exist
+    - ~/.cache:~/.cache
+  ro_bind_try:              # Optional: read-only bind-try mounts
+    - /usr/share/fonts
+  dev_bind_try:             # Optional: device bind-try mounts
+    - /dev/kvm
   tmpfs:                    # Temporary filesystems
     - /tmp
+  chdir: /workspace         # Optional: working directory inside sandbox
+  die_with_parent: true     # Optional: kill process when parent dies (default: false)
+  new_session: false        # Optional: create new terminal session (default: false)
+  cap:                      # Optional: add Linux capabilities (bwrap drops all by default)
+    - CAP_SYS_ADMIN
+    - CAP_NET_ADMIN
   env:                      # Set environment variables
     NODE_ENV: production
   unset_env:                # Unset environment variables

@@ -90,7 +90,21 @@ pub struct Entry {
     #[serde(default)]
     pub dev_bind: Vec<String>,
     #[serde(default)]
+    pub bind_try: Vec<String>,
+    #[serde(default)]
+    pub ro_bind_try: Vec<String>,
+    #[serde(default)]
+    pub dev_bind_try: Vec<String>,
+    #[serde(default)]
     pub tmpfs: Vec<String>,
+    #[serde(default)]
+    pub chdir: Option<String>,
+    #[serde(default = "default_die_with_parent")]
+    pub die_with_parent: bool,
+    #[serde(default = "default_new_session")]
+    pub new_session: bool,
+    #[serde(default)]
+    pub cap: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
     #[serde(default)]
@@ -102,6 +116,14 @@ fn default_enabled() -> bool {
 }
 
 fn default_override() -> bool {
+    false
+}
+
+fn default_die_with_parent() -> bool {
+    false
+}
+
+fn default_new_session() -> bool {
     false
 }
 
@@ -173,7 +195,41 @@ impl Entry {
         let mut merged_env = parent.env.clone();
         merged_env.extend(child.env);
 
-        // Scalar fields: child wins
+        // Merge bind_try variants
+        let mut merged_bind_try = parent.bind_try.clone();
+        merged_bind_try.extend(child.bind_try.clone());
+        let merged_bind_try = if child.bind_try.is_empty() {
+            parent.bind_try
+        } else {
+            deduplicate_vec(merged_bind_try)
+        };
+
+        let mut merged_ro_bind_try = parent.ro_bind_try.clone();
+        merged_ro_bind_try.extend(child.ro_bind_try.clone());
+        let merged_ro_bind_try = if child.ro_bind_try.is_empty() {
+            parent.ro_bind_try
+        } else {
+            deduplicate_vec(merged_ro_bind_try)
+        };
+
+        let mut merged_dev_bind_try = parent.dev_bind_try.clone();
+        merged_dev_bind_try.extend(child.dev_bind_try.clone());
+        let merged_dev_bind_try = if child.dev_bind_try.is_empty() {
+            parent.dev_bind_try
+        } else {
+            deduplicate_vec(merged_dev_bind_try)
+        };
+
+        // Merge cap
+        let mut merged_cap = parent.cap.clone();
+        merged_cap.extend(child.cap.clone());
+        let merged_cap = if child.cap.is_empty() {
+            parent.cap
+        } else {
+            deduplicate_vec(merged_cap)
+        };
+
+        // Scalar fields: child wins (including chdir, die_with_parent, new_session)
         Entry {
             entry_type: child.entry_type,
             enabled: child.enabled,
@@ -183,7 +239,14 @@ impl Entry {
             bind: merged_bind,
             ro_bind: merged_ro_bind,
             dev_bind: merged_dev_bind,
+            bind_try: merged_bind_try,
+            ro_bind_try: merged_ro_bind_try,
+            dev_bind_try: merged_dev_bind_try,
             tmpfs: merged_tmpfs,
+            chdir: child.chdir.or(parent.chdir),
+            die_with_parent: child.die_with_parent,
+            new_session: child.new_session,
+            cap: merged_cap,
             env: merged_env,
             unset_env: merged_unset_env,
         }
@@ -285,9 +348,13 @@ impl Config {
         let cmd_bind = cmd_config.bind.clone();
         let cmd_ro_bind = cmd_config.ro_bind.clone();
         let cmd_dev_bind = cmd_config.dev_bind.clone();
+        let cmd_bind_try = cmd_config.bind_try.clone();
+        let cmd_ro_bind_try = cmd_config.ro_bind_try.clone();
+        let cmd_dev_bind_try = cmd_config.dev_bind_try.clone();
         let cmd_tmpfs = cmd_config.tmpfs.clone();
         let cmd_unset_env = cmd_config.unset_env.clone();
         let cmd_env = cmd_config.env.clone();
+        let cmd_cap = cmd_config.cap.clone();
 
         let mut result = Entry {
             entry_type: cmd_config.entry_type.clone(),
@@ -298,7 +365,14 @@ impl Config {
             bind: vec![],
             ro_bind: vec![],
             dev_bind: vec![],
+            bind_try: vec![],
+            ro_bind_try: vec![],
+            dev_bind_try: vec![],
             tmpfs: vec![],
+            chdir: cmd_config.chdir.clone(),
+            die_with_parent: cmd_config.die_with_parent,
+            new_session: cmd_config.new_session,
+            cap: vec![],
             env: HashMap::new(),
             unset_env: vec![],
         };
@@ -311,8 +385,12 @@ impl Config {
                 result.bind.extend(template.bind.clone());
                 result.ro_bind.extend(template.ro_bind.clone());
                 result.dev_bind.extend(template.dev_bind.clone());
+                result.bind_try.extend(template.bind_try.clone());
+                result.ro_bind_try.extend(template.ro_bind_try.clone());
+                result.dev_bind_try.extend(template.dev_bind_try.clone());
                 result.tmpfs.extend(template.tmpfs.clone());
                 result.unset_env.extend(template.unset_env.clone());
+                result.cap.extend(template.cap.clone());
 
                 // Merge env (later templates override earlier ones)
                 result.env.extend(template.env.clone());
@@ -325,8 +403,12 @@ impl Config {
         result.bind.extend(cmd_bind);
         result.ro_bind.extend(cmd_ro_bind);
         result.dev_bind.extend(cmd_dev_bind);
+        result.bind_try.extend(cmd_bind_try);
+        result.ro_bind_try.extend(cmd_ro_bind_try);
+        result.dev_bind_try.extend(cmd_dev_bind_try);
         result.tmpfs.extend(cmd_tmpfs);
         result.unset_env.extend(cmd_unset_env);
+        result.cap.extend(cmd_cap);
         result.env.extend(cmd_env);
 
         result
