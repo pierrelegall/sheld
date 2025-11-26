@@ -182,6 +182,64 @@ By default, **all namespaces are unshared** (isolated). Use `share` to selective
 - `uts` - Hostname
 - `cgroup` - Control groups
 
+## How Shwrap defaults differs from Bwrap defaults
+
+### Namespace isolation
+
+**Bwrap's default behavior:**
+- Shares all namespaces with the host by default
+- You must explicitly use `--unshare-*` flags to isolate namespaces
+- Designed for compatibility - commands work normally without modification
+
+**Shwrap's default behavior:**
+- Unshares all namespaces by default (user, network, pid, ipc, uts, cgroup)
+- You must explicitly use `share:` configuration to allow namespace access
+- Designed for security - follows the principle of least privilege
+
+**Rationale:**
+
+Shwrap takes a security-first approach by isolating commands by default. This means:
+- Commands cannot access the network unless explicitly allowed
+- Commands run in isolated process namespaces
+- User namespaces are isolated (though file access still works via bind mounts)
+
+This is intentional: it's safer to deny by default and grant permissions as needed, rather than allow everything and try to restrict later.
+
+### Replicating bwrap's permissive defaults
+
+If you want a command to behave exactly like bwrap's default (sharing all namespaces), configure it like this:
+
+```yaml
+fucmd:
+  share:
+    - user    # Same user/group IDs as the host
+    - network # Full network access (same as host)
+    - pid     # Visibility to all host processes
+    - ipc     # Access to host IPC mechanisms
+    - uts     # Same hostname as the host
+    - cgroup  # Access to host cgroups
+```
+
+Or use the model system:
+
+```yaml
+share_all_namespaces:
+  type: model
+  share:
+    - user    # Same user/group IDs as the host
+    - network # Full network access (same as host)
+    - pid     # Visibility to all host processes
+    - ipc     # Access to host IPC mechanisms
+    - uts     # Same hostname as the host
+    - cgroup  # Access to host cgroups
+
+fucmd:
+  extends: share_all_namespaces
+
+barcmd:
+  extends: share_all_namespaces
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
