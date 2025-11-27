@@ -37,6 +37,9 @@ fn main() -> Result<()> {
         Action::Activate { shell } => {
             print_shell_hook(&shell)?;
         }
+        Action::Check { command, silent } => {
+            check_command(&command, silent)?;
+        }
     }
 
     Ok(())
@@ -189,4 +192,22 @@ fn print_shell_hook(shell_name: &str) -> Result<()> {
     print!("{}", hook);
 
     Ok(())
+}
+
+fn check_command(command: &str, silent: bool) -> Result<()> {
+    let config = ConfigLoader::load()?.context("No configuration found")?;
+
+    let exists = config.get_command(command).is_some();
+
+    if exists {
+        if !silent {
+            println!("Command `{}` is configured", command);
+        }
+        Ok(())
+    } else {
+        if !silent {
+            eprintln!("Command `{}` not found in configuration", command);
+        }
+        std::process::exit(1)
+    }
 }

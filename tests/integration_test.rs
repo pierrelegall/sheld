@@ -653,3 +653,74 @@ fn test_local_config_takes_precedence_over_user_config() {
     }
     env::set_current_dir(original_dir).unwrap();
 }
+#[test]
+fn test_check_command_exists() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+    let yaml = indoc! {"
+        node:
+          enabled: true
+          share:
+            - user
+
+        python:
+          enabled: true
+    "};
+
+    fs::write(&config_path, yaml).unwrap();
+
+    use shwrap::config::Config;
+    let config = Config::from_file(&config_path).unwrap();
+
+    // Check that existing commands are found
+    assert!(config.get_command("node").is_some());
+    assert!(config.get_command("python").is_some());
+}
+
+#[test]
+fn test_check_command_not_exists() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+    let yaml = indoc! {"
+        node:
+          enabled: true
+    "};
+
+    fs::write(&config_path, yaml).unwrap();
+
+    use shwrap::config::Config;
+    let config = Config::from_file(&config_path).unwrap();
+
+    // Check that non-existent command is not found
+    assert!(config.get_command("python").is_none());
+    assert!(config.get_command("nonexistent").is_none());
+}
+
+#[test]
+fn test_check_command_ignores_models() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+    let yaml = indoc! {"
+        base:
+          type: model
+          share:
+            - user
+
+        node:
+          extends: base
+          enabled: true
+    "};
+
+    fs::write(&config_path, yaml).unwrap();
+
+    use shwrap::config::Config;
+    let config = Config::from_file(&config_path).unwrap();
+
+    // Check that models are not returned as commands
+    assert!(config.get_command("base").is_none());
+    // But commands are found
+    assert!(config.get_command("node").is_some());
+}

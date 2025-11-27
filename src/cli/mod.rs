@@ -67,4 +67,14 @@ pub enum Action {
         /// Shell name (bash, zsh, fish)
         shell: String,
     },
+
+    /// Check if a command exists in configuration
+    Check {
+        /// Command name to check
+        command: String,
+
+        /// Suppress output (useful for exit code checking in scripts)
+        #[arg(long)]
+        silent: bool,
+    },
 }
