@@ -20,7 +20,7 @@ end
 # Wrap command execution
 function __shwrap_wrap_command
   __shwrap_log "Executing command:" $argv
-  shwrap exec $argv
+  shwrap wrap $argv
 end
 
 # Set all commands

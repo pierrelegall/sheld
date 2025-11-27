@@ -24,7 +24,7 @@ pub enum Action {
     },
 
     /// Manually wrap and execute a command
-    Exec {
+    Wrap {
         /// Command to execute
         command: String,
 

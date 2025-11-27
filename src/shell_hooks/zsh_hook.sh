@@ -18,7 +18,7 @@ __shwrap_log() {
 # Wrap command execution
 __shwrap_wrap_command() {
   __shwrap_log "Executing command: $@"
-  shwrap exec "$@"
+  shwrap wrap "$@"
 }
 
 # Set all commands

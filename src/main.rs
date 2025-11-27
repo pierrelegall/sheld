@@ -28,8 +28,8 @@ fn main() -> Result<()> {
         Action::Show { command, args } => {
             show_command(&command, &args)?;
         }
-        Action::Exec { command, args } => {
-            exec_command(&command, &args)?;
+        Action::Wrap { command, args } => {
+            wrap_command(&command, &args)?;
         }
         Action::Bypass { command, args } => {
             bypass_command(&command, &args)?;
@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn exec_command(command: &str, args: &[String]) -> Result<()> {
+fn wrap_command(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let cmd_config = config
