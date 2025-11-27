@@ -8,9 +8,9 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 use cli::{Action, Cli};
-use shell_hooks::Shell;
 use sheld::bwrap::WrappedCommandBuilder;
 use sheld::config::{self, loader::ConfigLoader};
+use shell_hooks::Shell;
 
 fn main() -> Result<()> {
     let input = Cli::parse();
@@ -38,7 +38,9 @@ fn main() -> Result<()> {
             print_shell_hook(&shell)?;
         }
         Action::Check { command, silent } => {
-            check_command(&command, silent)?;
+            if check_command(&command, silent).is_err() {
+                std::process::exit(1);
+            }
         }
     }
 
@@ -197,9 +199,9 @@ fn print_shell_hook(shell_name: &str) -> Result<()> {
 fn check_command(command: &str, silent: bool) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
-    let exists = config.get_command(command).is_some();
+    let command_exists = config.get_command(command).is_some();
 
-    if exists {
+    if command_exists {
         if !silent {
             println!("Command `{}` is configured", command);
         }
@@ -208,6 +210,6 @@ fn check_command(command: &str, silent: bool) -> Result<()> {
         if !silent {
             eprintln!("Command `{}` not found in configuration", command);
         }
-        std::process::exit(1)
+        bail!("Command not found")
     }
 }
