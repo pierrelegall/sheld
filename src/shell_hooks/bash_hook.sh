@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Bash hook for Shwrap auto wrapped commands.
-# Note: It use functions as aliases,
+# Note: It uses functions as wrappers,
 # so user defined functions can be redefined.
 
 typeset -g SHWRAP_PREVIOUS_DIR="$PWD"
@@ -19,7 +19,7 @@ __shwrap_log() {
 # Wrap command execution
 __shwrap_wrap_command() {
   __shwrap_log "Executing command: $@"
-  shwrap command exec "$@"
+  shwrap exec "$@"
 }
 
 # Set all commands
@@ -38,7 +38,7 @@ __shwrap_set_commands() {
 
 # Refresh SHWRAP_COMMANDS variable
 __shwrap_refresh_commands() {
-  SHWRAP_COMMANDS=$(shwrap command list --simple 2>/dev/null)
+  SHWRAP_COMMANDS=$(shwrap list --simple 2>/dev/null)
 }
 
 # Unset all commands

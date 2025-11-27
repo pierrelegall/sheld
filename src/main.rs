@@ -7,7 +7,7 @@ mod shell_hooks;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 
-use cli::{Cli, CommandAction, ConfigAction, ShellHookAction, Subject};
+use cli::{Action, Cli};
 use shell_hooks::Shell;
 use shwrap::bwrap::WrappedCommandBuilder;
 use shwrap::config::{self, loader::ConfigLoader};
@@ -15,43 +15,34 @@ use shwrap::config::{self, loader::ConfigLoader};
 fn main() -> Result<()> {
     let input = Cli::parse();
 
-    match input.subject {
-        Subject::Config { action } => match action {
-            ConfigAction::Init => {
-                config_init_cmd()?;
-            }
-            ConfigAction::Check { path, silent } => {
-                config_check_cmd(path, silent)?;
-            }
-            ConfigAction::Which => {
-                config_which_cmd()?;
-            }
-        },
-        Subject::Command { action } => match action {
-            CommandAction::List { simple } => {
-                command_list_cmd(simple)?;
-            }
-            CommandAction::Exec { command, args } => {
-                command_exec_cmd(&command, &args)?;
-            }
-            CommandAction::Show { command, args } => {
-                command_show_cmd(&command, &args)?;
-            }
-            CommandAction::Bypass { command, args } => {
-                command_bypass_cmd(&command, &args)?;
-            }
-        },
-        Subject::ShellHook { action } => match action {
-            ShellHookAction::Get { shell } => {
-                shell_hook_get_cmd(&shell)?;
-            }
-        },
+    match input.action {
+        Action::Init => {
+            initialize_config()?;
+        }
+        Action::Validate { path, silent } => {
+            validate_config(path, silent)?;
+        }
+        Action::List { simple } => {
+            list_commands(simple)?;
+        }
+        Action::Show { command, args } => {
+            show_command(&command, &args)?;
+        }
+        Action::Exec { command, args } => {
+            exec_command(&command, &args)?;
+        }
+        Action::Bypass { command, args } => {
+            bypass_command(&command, &args)?;
+        }
+        Action::Activate { shell } => {
+            print_shell_hook(&shell)?;
+        }
     }
 
     Ok(())
 }
 
-fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
+fn exec_command(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let cmd_config = config
@@ -70,7 +61,7 @@ fn command_exec_cmd(command: &str, args: &[String]) -> Result<()> {
     std::process::exit(exit_code)
 }
 
-fn command_list_cmd(simple: bool) -> Result<()> {
+fn list_commands(simple: bool) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
     // Sort commands alphabetically
@@ -93,7 +84,9 @@ fn command_list_cmd(simple: bool) -> Result<()> {
                     println!("  share: {}", cmd_config.share.join(", "));
                 }
                 if !cmd_config.bind.is_empty() {
-                    let bind_str: Vec<String> = cmd_config.bind.iter()
+                    let bind_str: Vec<String> = cmd_config
+                        .bind
+                        .iter()
                         .map(|(src, dst)| format!("{}:{}", src, dst))
                         .collect();
                     println!("  bind: {}", bind_str.join(", "));
@@ -105,7 +98,7 @@ fn command_list_cmd(simple: bool) -> Result<()> {
     Ok(())
 }
 
-fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
+fn show_command(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let cmd_config = config
@@ -121,7 +114,7 @@ fn command_show_cmd(command: &str, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn command_bypass_cmd(command: &str, args: &[String]) -> Result<()> {
+fn bypass_command(command: &str, args: &[String]) -> Result<()> {
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
@@ -136,7 +129,7 @@ fn command_bypass_cmd(command: &str, args: &[String]) -> Result<()> {
     Err(anyhow::Error::from(error).context(format!("Failed to execute command '{}'", command)))
 }
 
-fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
+fn validate_config(path: Option<String>, silent: bool) -> Result<()> {
     let config_path = if let Some(p) = path {
         std::path::PathBuf::from(p)
     } else {
@@ -167,7 +160,7 @@ fn config_check_cmd(path: Option<String>, silent: bool) -> Result<()> {
     Ok(())
 }
 
-fn config_init_cmd() -> Result<()> {
+fn initialize_config() -> Result<()> {
     use std::fs;
 
     let template_content = include_str!("../examples/default.yaml");
@@ -185,17 +178,7 @@ fn config_init_cmd() -> Result<()> {
     Ok(())
 }
 
-fn config_which_cmd() -> Result<()> {
-    if let Some(config_path) = ConfigLoader::get_config_file()? {
-        println!("{}", config_path.display());
-    } else {
-        println!("No configuration found");
-    }
-
-    Ok(())
-}
-
-fn shell_hook_get_cmd(shell_name: &str) -> Result<()> {
+fn print_shell_hook(shell_name: &str) -> Result<()> {
     let shell =
         Shell::from_str(shell_name).context(format!("Unsupported shell: {}", shell_name))?;
 

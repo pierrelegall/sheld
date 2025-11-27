@@ -20,7 +20,7 @@ end
 # Wrap command execution
 function __shwrap_wrap_command
   __shwrap_log "Executing command:" $argv
-  shwrap command exec $argv
+  shwrap exec $argv
 end
 
 # Set all commands
@@ -39,7 +39,7 @@ end
 
 # Refresh SHWRAP_COMMANDS variable
 function __shwrap_refresh_commands
-  set -g SHWRAP_COMMANDS (shwrap command list --simple 2>/dev/null)
+  set -g SHWRAP_COMMANDS (shwrap list --simple 2>/dev/null)
 end
 
 # Unset all commands
