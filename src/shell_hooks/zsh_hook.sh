@@ -3,7 +3,7 @@
 # Copyright (C) 2025 Pierre Le Gall
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Zsh hook for Sheld auto wrapped commands.
+# Zsh hook for Sheld to auto wrap commands.
 # Note: It uses functions as wrappers,
 # so user defined functions can be redefined.
 
@@ -16,53 +16,60 @@ __sheld_log() {
 }
 
 # Wrap command execution
-__sheld_wrap_command() {
+__sheld_wrap() {
   __sheld_log "Wrapping: $@"
   sheld wrap "$@"
 }
 
+# Update the commands list
+__sheld_update_command_list() {
+  SHELD_COMMANDS=$(sheld list --simple 2>/dev/null)
+}
+
 # Set all commands
-__sheld_set_commands() {
+__sheld_set_auto_wraps() {
+  if [ -z "$SHELD_COMMANDS" ]; then return; fi
   while IFS= read -r cmd; do
     if [[ -n "$cmd" ]]; then
-      __sheld_log "Set command: $cmd"
+      __sheld_log "Set auto-wrap: $cmd"
       eval "
         $cmd() {
-          __sheld_wrap_command $cmd \"\$@\"
+          __sheld_wrap $cmd \"\$@\"
         }
       "
     fi
   done <<< "$SHELD_COMMANDS"
 }
 
-# Refresh SHELD_COMMANDS variable
-__sheld_refresh_commands() {
-  SHELD_COMMANDS=$(sheld list --simple 2>/dev/null)
-}
-
 # Unset all commands
-__sheld_unset_commands() {
+__sheld_unset_auto_wraps() {
+  if [ -z "$SHELD_COMMANDS" ]; then return; fi
   while IFS= read -r cmd; do
     if [[ -n "$cmd" ]]; then
-      __sheld_log "Unset command: $cmd"
+      __sheld_log "Unset auto-wrap: $cmd"
       unset -f $cmd
     fi
   done <<< "$SHELD_COMMANDS"
 }
 
+# Refresh all auto wrap commands
+__sheld_refresh_auto_wraps() {
+  __sheld_log "Refresh auto-wraps"
+  __sheld_unset_auto_wraps
+  __sheld_update_command_list
+  __sheld_set_auto_wraps
+}
+
 # Directory change hook
 __sheld_directory_change_hook() {
   __sheld_log "Directory changed to: $PWD"
-  __sheld_unset_commands
-  __sheld_refresh_commands
-  __sheld_set_commands
+  __sheld_refresh_auto_wraps
 }
 
 # Add our hook to Zsh's chpwd_functions array
-if (( ! ${chpwd_functions[(I)__sheld_directory_change_hook]} )); then
+if [[ -z "${chpwd_functions[(r)__sheld_directory_change_hook]}" ]]; then
   chpwd_functions+=(__sheld_directory_change_hook)
 fi
 
 # Initial setup
-__sheld_refresh_commands
-__sheld_set_commands
+__sheld_refresh_auto_wraps
