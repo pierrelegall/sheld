@@ -4,7 +4,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "shwrap")]
+#[command(name = "sheld")]
 #[command(about = "A profile manager for Bubblewrap (bwrap)", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
@@ -13,7 +13,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Action {
-    /// Initialize a new .shwrap.yaml file
+    /// Initialize a new .sheld.yaml file
     Init,
 
     /// List active profiles and configurations

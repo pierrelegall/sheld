@@ -1,22 +1,22 @@
 <h3 align="center">
-  shwrap
+  sheld
 </h3>
 
 <div align="center">
-  <a href="https://github.com/pierrelegall/shwrap/stargazers"><img src="https://img.shields.io/github/stars/pierrelegall/shwrap?colorA=363a4f&colorB=b7bdf8&style=for-the-badge"></a>
-  <a href="https://github.com/pierrelegall/shwrap/issues"><img src="https://img.shields.io/github/issues/pierrelegall/shwrap?colorA=363a4f&colorB=f5a97f&style=for-the-badge"></a>
-  <a href="https://github.com/pierrelegall/shwrap/contributors"><img src="https://img.shields.io/github/contributors/pierrelegall/shwrap?colorA=363a4f&colorB=a6da95&style=for-the-badge"></a>
+  <a href="https://github.com/pierrelegall/sheld/stargazers"><img src="https://img.shields.io/github/stars/pierrelegall/sheld?colorA=363a4f&colorB=b7bdf8&style=for-the-badge"></a>
+  <a href="https://github.com/pierrelegall/sheld/issues"><img src="https://img.shields.io/github/issues/pierrelegall/sheld?colorA=363a4f&colorB=f5a97f&style=for-the-badge"></a>
+  <a href="https://github.com/pierrelegall/sheld/contributors"><img src="https://img.shields.io/github/contributors/pierrelegall/sheld?colorA=363a4f&colorB=a6da95&style=for-the-badge"></a>
 </div>
 
 ## About
 
-Shwrap allows you to define sandbox profiles (in your directory or globally for your user) for different commands and automatically wraps them using [Bubblewrap](https://github.com/containers/bubblewrap) when executed. Hooks are available for `bash`, `zsh`, and `fish`.
+Sheld allows you to define sandbox profiles (in your directory or globally for your user) for different commands and automatically wraps them using [Bubblewrap](https://github.com/containers/bubblewrap) when executed. Hooks are available for `bash`, `zsh`, and `fish`.
 
-⚠ **Alpha software**: Shwrap is an alpha software, so breaking changes will happen.
+⚠ **Alpha software**: Sheld is an alpha software, so breaking changes will happen.
 
 ## Features
 
-- 📁 **Hierarchical configuration**: Local `.shwrap.yaml` merges with user config at `~/.config/shwrap/default.yaml`
+- 📁 **Hierarchical configuration**: Local `.sheld.yaml` merges with user config at `~/.config/sheld/default.yaml`
 - 🔒 **Secure by default**: All namespaces unshared unless explicitly allowed
 - 🎯 **Per-command rules**: Different sandbox settings for each command
 - 📦 **Model system**: Reusable configuration models for common patterns
@@ -27,8 +27,8 @@ Shwrap allows you to define sandbox profiles (in your directory or globally for 
 Build from source:
 
 ```sh
-git clone https://github.com/pierrelegall/shwrap.git
-cd shwrap
+git clone https://github.com/pierrelegall/sheld.git
+cd sheld
 cargo build --release
 ```
 
@@ -37,10 +37,10 @@ cargo build --release
 First, initialize a configuration file in a directory:
 
 ```sh
-shwrap config init
+sheld config init
 ```
 
-Then, edit the `.shwrap.yaml` file to define your command wraps:
+Then, edit the `.sheld.yaml` file to define your command wraps:
 
 ```yaml
 node:
@@ -60,7 +60,7 @@ node:
 You can run wrapped commands manually:
 
 ```sh
-shwrap wrap node app.js
+sheld wrap node app.js
 ```
 
 Or use the shell hook. Shell hook automatically wrap configured commands when you execute them. It automatically reloads command configurations on directory change.
@@ -68,10 +68,10 @@ Or use the shell hook. Shell hook automatically wrap configured commands when yo
 To bypass the hook system and run a command without sandboxing:
 
 ```sh
-shwrap bypass node app.js
+sheld bypass node app.js
 ```
 
-**Note**: To enable debug logs, set `SHWRAP_DEBUG` to `1`.
+**Note**: To enable debug logs, set `SHELD_DEBUG` to `1`.
 
 ## Setup shell hook
 
@@ -80,7 +80,7 @@ shwrap bypass node app.js
 Add to your `~/.bashrc`:
 
 ```sh
-eval "$(shwrap shell-hook get bash)"
+eval "$(sheld shell-hook get bash)"
 ```
 
 ### Zsh
@@ -88,7 +88,7 @@ eval "$(shwrap shell-hook get bash)"
 Add to your `~/.zshrc`:
 
 ```sh
-eval "$(shwrap shell-hook get zsh)"
+eval "$(sheld shell-hook get zsh)"
 ```
 
 ### Fish
@@ -96,17 +96,17 @@ eval "$(shwrap shell-hook get zsh)"
 Add to your `~/.config/fish/config.fish`:
 
 ```sh
-shwrap shell-hook get fish | source
+sheld shell-hook get fish | source
 ```
 
 ## Configuration
 
 ### Configuration file hierarchy
 
-Shwrap merges configuration files to combine global defaults with project-specific settings:
+Sheld merges configuration files to combine global defaults with project-specific settings:
 
-1. **User**: `~/.config/shwrap/default.yaml` - Global baseline configuration
-2. **Local**: `.shwrap.yaml` in current directory or parent directories - Project-specific overrides
+1. **User**: `~/.config/sheld/default.yaml` - Global baseline configuration
+2. **Local**: `.sheld.yaml` in current directory or parent directories - Project-specific overrides
 
 When both files exist, they are merged with local entries taking precedence:
 - Commands/models with the same name:
@@ -182,7 +182,7 @@ By default, **all namespaces are unshared** (isolated). Use `share` to selective
 - `uts` - Hostname
 - `cgroup` - Control groups
 
-## How Shwrap defaults differs from Bwrap defaults
+## How Sheld defaults differs from Bwrap defaults
 
 ### Namespace isolation
 
@@ -191,14 +191,14 @@ By default, **all namespaces are unshared** (isolated). Use `share` to selective
 - You must explicitly use `--unshare-*` flags to isolate namespaces
 - Designed for compatibility - commands work normally without modification
 
-**Shwrap's default behavior:**
+**Sheld's default behavior:**
 - Unshares all namespaces by default (user, network, pid, ipc, uts, cgroup)
 - You must explicitly use `share:` configuration to allow namespace access
 - Designed for security - follows the principle of least privilege
 
 **Rationale:**
 
-Shwrap takes a security-first approach by isolating commands by default. This means:
+Sheld takes a security-first approach by isolating commands by default. This means:
 - Commands cannot access the network unless explicitly allowed
 - Commands run in isolated process namespaces
 - User namespaces are isolated (though file access still works via bind mounts)
@@ -255,5 +255,5 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 </p>
 
 <p align="center">
-  <a href="https://github.com/pierrelegall/shwrap/blob/main/LICENSE.md"><img src="https://img.shields.io/static/v1.svg?style=for-the-badge&label=License&message=GPL%20v3&logoColor=d9e0ee&colorA=363a4f&colorB=b7bdf8"/></a>
+  <a href="https://github.com/pierrelegall/sheld/blob/main/LICENSE.md"><img src="https://img.shields.io/static/v1.svg?style=for-the-badge&label=License&message=GPL%20v3&logoColor=d9e0ee&colorA=363a4f&colorB=b7bdf8"/></a>
 </p>

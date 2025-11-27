@@ -8,13 +8,13 @@ use std::path::PathBuf;
 use super::Config;
 
 /// Local config file name
-const LOCAL_CONFIG_FILE_NAME: &str = ".shwrap.yaml";
+const LOCAL_CONFIG_FILE_NAME: &str = ".sheld.yaml";
 
 /// User config file name
 const USER_CONFIG_FILE_NAME: &str = "default.yaml";
 
 /// User config directory path relative to HOME
-const USER_CONFIG_DIR_PATH: &str = "~/.config/shwrap";
+const USER_CONFIG_DIR_PATH: &str = "~/.config/sheld";
 
 pub struct ConfigLoader;
 

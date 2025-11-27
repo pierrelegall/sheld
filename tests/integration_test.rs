@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use indoc::indoc;
-use shwrap::config::loader::ConfigLoader;
-use shwrap::config::EntryType;
+use sheld::config::loader::ConfigLoader;
+use sheld::config::EntryType;
 use std::env;
 use std::fs;
 use tempfile::TempDir;
@@ -37,7 +37,7 @@ fn test_full_config_loading_and_execution() {
     fs::write(&config_path, yaml).unwrap();
 
     // Load and verify config
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_file(&config_path).unwrap();
 
     // Verify node command
@@ -58,8 +58,8 @@ fn test_full_config_loading_and_execution() {
 
 #[test]
 fn test_bwrap_builder_integration() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Entry;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Entry;
     use std::collections::HashMap;
 
     let mut config = Entry {
@@ -106,7 +106,7 @@ fn test_bwrap_builder_integration() {
 
 #[test]
 fn test_config_with_all_features() {
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_yaml(indoc! {"
         base:
           type: model
@@ -148,7 +148,7 @@ fn test_config_with_all_features() {
     assert_eq!(merged.unset_env.len(), 2);
 
     // Build and verify bwrap args
-    use shwrap::bwrap::WrappedCommandBuilder;
+    use sheld::bwrap::WrappedCommandBuilder;
     let builder = WrappedCommandBuilder::new(merged);
     let args = builder.build_args();
 
@@ -165,7 +165,7 @@ fn test_config_with_all_features() {
 
 #[test]
 fn test_multiple_commands_in_config() {
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_yaml(indoc! {"
         node:
           enabled: true
@@ -199,7 +199,7 @@ fn test_multiple_commands_in_config() {
 
 #[test]
 fn test_config_error_handling() {
-    use shwrap::config::Config;
+    use sheld::config::Config;
 
     // Invalid YAML should error
     let result = Config::from_yaml(indoc! {"
@@ -216,8 +216,8 @@ fn test_config_error_handling() {
 
 #[test]
 fn test_command_show_formatting() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Entry;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Entry;
     use std::collections::HashMap;
 
     let config = Entry {
@@ -257,7 +257,7 @@ fn test_command_show_formatting() {
 
 #[test]
 fn test_empty_commands_section() {
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_yaml("").unwrap();
 
     let commands = config.get_commands();
@@ -267,7 +267,7 @@ fn test_empty_commands_section() {
 
 #[test]
 fn test_base_without_commands() {
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_yaml(indoc! {"
         base:
           type: model
@@ -282,7 +282,7 @@ fn test_base_without_commands() {
 
 #[test]
 fn test_custom_template_name() {
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_yaml(indoc! {"
         minimal:
           type: model
@@ -322,8 +322,8 @@ fn test_custom_template_name() {
 
 #[test]
 fn test_unshare_all_by_default_integration() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Config;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Config;
 
     // Test 1: Empty config should unshare all namespaces
     let config = Config::from_yaml(indoc! {"
@@ -349,8 +349,8 @@ fn test_unshare_all_by_default_integration() {
 
 #[test]
 fn test_share_specific_namespaces_integration() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Config;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Config;
 
     // Test 2: Share only user and network namespaces
     let config = Config::from_yaml(indoc! {"
@@ -381,8 +381,8 @@ fn test_share_specific_namespaces_integration() {
 
 #[test]
 fn test_share_multiple_namespaces_integration() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Config;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Config;
 
     // Test 3: Share user, network, and ipc namespaces
     let config = Config::from_yaml(indoc! {"
@@ -414,8 +414,8 @@ fn test_share_multiple_namespaces_integration() {
 
 #[test]
 fn test_share_all_namespaces_integration() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Config;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Config;
 
     // Test 4: Share all namespaces (no isolation)
     let config = Config::from_yaml(indoc! {"
@@ -448,8 +448,8 @@ fn test_share_all_namespaces_integration() {
 
 #[test]
 fn test_template_with_share_inheritance() {
-    use shwrap::bwrap::WrappedCommandBuilder;
-    use shwrap::config::Config;
+    use sheld::bwrap::WrappedCommandBuilder;
+    use sheld::config::Config;
 
     // Test 5: Template inheritance with share
     let config = Config::from_yaml(indoc! {"
@@ -488,10 +488,10 @@ fn test_template_with_share_inheritance() {
 fn test_user_config_loaded_when_no_local_config() {
     // Create a temp directory to act as fake HOME
     let fake_home = TempDir::new().unwrap();
-    let config_dir = fake_home.path().join(".config").join("shwrap");
+    let config_dir = fake_home.path().join(".config").join("sheld");
     fs::create_dir_all(&config_dir).unwrap();
 
-    // Create user config at ~/.config/shwrap/default.yaml
+    // Create user config at ~/.config/sheld/default.yaml
     let user_config_path = config_dir.join(ConfigLoader::user_config_name());
     let yaml = indoc! {"
         base:
@@ -571,7 +571,7 @@ fn test_user_config_loaded_when_no_local_config() {
 fn test_local_config_takes_precedence_over_user_config() {
     // Create a temp directory to act as fake HOME with user config
     let fake_home = TempDir::new().unwrap();
-    let config_dir = fake_home.path().join(".config").join("shwrap");
+    let config_dir = fake_home.path().join(".config").join("sheld");
     fs::create_dir_all(&config_dir).unwrap();
 
     // Create user config with python command
@@ -670,7 +670,7 @@ fn test_check_command_exists() {
 
     fs::write(&config_path, yaml).unwrap();
 
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_file(&config_path).unwrap();
 
     // Check that existing commands are found
@@ -690,7 +690,7 @@ fn test_check_command_not_exists() {
 
     fs::write(&config_path, yaml).unwrap();
 
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_file(&config_path).unwrap();
 
     // Check that non-existent command is not found
@@ -716,7 +716,7 @@ fn test_check_command_ignores_models() {
 
     fs::write(&config_path, yaml).unwrap();
 
-    use shwrap::config::Config;
+    use sheld::config::Config;
     let config = Config::from_file(&config_path).unwrap();
 
     // Check that models are not returned as commands

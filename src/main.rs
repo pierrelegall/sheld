@@ -9,8 +9,8 @@ use clap::Parser;
 
 use cli::{Action, Cli};
 use shell_hooks::Shell;
-use shwrap::bwrap::WrappedCommandBuilder;
-use shwrap::config::{self, loader::ConfigLoader};
+use sheld::bwrap::WrappedCommandBuilder;
+use sheld::config::{self, loader::ConfigLoader};
 
 fn main() -> Result<()> {
     let input = Cli::parse();

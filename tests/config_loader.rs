@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use indoc::indoc;
-use shwrap::config::loader::ConfigLoader;
+use sheld::config::loader::ConfigLoader;
 use std::env;
 use std::fs;
 use std::sync::Mutex;

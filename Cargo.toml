@@ -1,14 +1,14 @@
 [package]
-name = "shwrap"
+name = "sheld"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "shwrap"
+name = "sheld"
 path = "src/lib.rs"
 
 [[bin]]
-name = "shwrap"
+name = "sheld"
 path = "src/main.rs"
 
 [dependencies]

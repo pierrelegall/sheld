@@ -3,81 +3,81 @@
 # Copyright (C) 2025 Pierre Le Gall
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Bash hook for Shwrap auto wrapped commands.
+# Bash hook for Sheld auto wrapped commands.
 # Note: It uses functions as wrappers,
 # so user defined functions can be redefined.
 
-typeset -g SHWRAP_PREVIOUS_DIR="$PWD"
-typeset -g SHWRAP_COMMANDS=""
-typeset -g SHWRAP_DEBUG=${SHWRAP_DEBUG:-0}
+typeset -g SHELD_PREVIOUS_DIR="$PWD"
+typeset -g SHELD_COMMANDS=""
+typeset -g SHELD_DEBUG=${SHELD_DEBUG:-0}
 
-# Shwrap logging
-__shwrap_log() {
-  [[ "$SHWRAP_DEBUG" != "0" ]] && echo "[shwrap] $*" >&2
+# Sheld logging
+__sheld_log() {
+  [[ "$SHELD_DEBUG" != "0" ]] && echo "[sheld] $*" >&2
 }
 
 # Wrap command execution
-__shwrap_wrap_command() {
-  __shwrap_log "Executing command: $@"
-  shwrap wrap "$@"
+__sheld_wrap_command() {
+  __sheld_log "Wrapping: $@"
+  sheld wrap "$@"
 }
 
 # Set all commands
-__shwrap_set_commands() {
+__sheld_set_commands() {
   while IFS= read -r cmd; do
     if [[ -n "$cmd" ]]; then
-      __shwrap_log "Set commands: $cmd"
+      __sheld_log "Set commands: $cmd"
       eval "
         $cmd() {
-          __shwrap_wrap_command $cmd \"\$@\"
+          __sheld_wrap_command $cmd \"\$@\"
         }
       "
     fi
-  done <<< "$SHWRAP_COMMANDS"
+  done <<< "$SHELD_COMMANDS"
 }
 
-# Refresh SHWRAP_COMMANDS variable
-__shwrap_refresh_commands() {
-  SHWRAP_COMMANDS=$(shwrap list --simple 2>/dev/null)
+# Refresh SHELD_COMMANDS variable
+__sheld_refresh_commands() {
+  SHELD_COMMANDS=$(sheld list --simple 2>/dev/null)
 }
 
 # Unset all commands
-__shwrap_unset_commands() {
+__sheld_unset_commands() {
   while IFS= read -r cmd; do
     if [[ -n "$cmd" ]]; then
-      __shwrap_log "Unset command: $cmd"
+      __sheld_log "Unset command: $cmd"
       unset -f $cmd
     fi
-  done <<< "$SHWRAP_COMMANDS"
+  done <<< "$SHELD_COMMANDS"
 }
 
 # Directory change hook
-__shwrap_directory_change_hook() {
-  __shwrap_log "Directory change hook called"
-  __shwrap_unset_commands
-  __shwrap_refresh_commands
-  __shwrap_set_commands
+__sheld_directory_change_hook() {
+  __sheld_log "Directory change hook called"
+  __sheld_unset_commands
+  __sheld_refresh_commands
+  __sheld_set_commands
 }
 
 # Prompt hook
-__shwrap_prompt_hook() {
-  __shwrap_log "Prompt hook called"
-  if [[ "$SHWRAP_PREVIOUS_DIR" != "$PWD" ]]; then
-    __shwrap_log "Directory changed detected: $PWD"
-    __shwrap_directory_change_hook
-    SHWRAP_PREVIOUS_DIR="$PWD"
+__sheld_prompt_hook() {
+  __sheld_log "Prompt hook called"
+  if [[ "$SHELD_PREVIOUS_DIR" != "$PWD" ]]; then
+    __sheld_log "Directory changed detected: $PWD"
+    __sheld_directory_change_hook
+    SHELD_PREVIOUS_DIR="$PWD"
   fi
 }
 
 # Install the hook (preserves existing PROMPT_COMMAND)
 if [[ -z "$PROMPT_COMMAND" ]]; then
-  PROMPT_COMMAND="__shwrap_prompt_hook"
+  PROMPT_COMMAND="__sheld_prompt_hook"
 else
-  if [[ "$PROMPT_COMMAND" != *"__shwrap_prompt_hook"* ]]; then
-    PROMPT_COMMAND="__shwrap_prompt_hook;$PROMPT_COMMAND"
+  if [[ "$PROMPT_COMMAND" != *"__sheld_prompt_hook"* ]]; then
+    PROMPT_COMMAND="__sheld_prompt_hook;$PROMPT_COMMAND"
   fi
 fi
 
 # Initial setup
-__shwrap_refresh_commands
-__shwrap_set_commands
+__sheld_refresh_commands
+__sheld_set_commands

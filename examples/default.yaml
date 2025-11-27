@@ -1,4 +1,4 @@
-# Default Shwrap configuration
+# Default Sheld configuration
 # Customize this file to specify which commands should be sandboxed
 
 # By default, all namespaces (user, pid, network, ipc, uts, cgroup) are unshared
