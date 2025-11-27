@@ -52,6 +52,65 @@ where
     deserializer.deserialize_any(ExtendsVisitor)
 }
 
+/// Custom deserializer for bind-like fields that accepts both String and (String, String) tuple
+/// String is sugar: "/usr" becomes ("/usr", "/usr")
+/// Tuple is accepted as-is: ["/usr/share", "/share"] stays as is
+fn deserialize_flexible_bind<'de, D>(deserializer: D) -> Result<Vec<(String, String)>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct FlexibleBindVisitor;
+
+    impl<'de> Visitor<'de> for FlexibleBindVisitor {
+        type Value = Vec<(String, String)>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a list of strings or tuples")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            use serde::de::Error;
+
+            let mut result = Vec::new();
+
+            while let Some(item) = seq.next_element::<serde_yaml::Value>()? {
+                match item {
+                    // Handle string: "/usr" → ("/usr", "/usr")
+                    serde_yaml::Value::String(s) => {
+                        result.push((s.clone(), s));
+                    }
+                    // Handle tuple: ["/usr/share", "/share"] → ("/usr/share", "/share")
+                    serde_yaml::Value::Sequence(seq_items) if seq_items.len() == 2 => {
+                        let src = seq_items[0].as_str().ok_or_else(|| {
+                            Error::custom("tuple first element must be a string")
+                        })?;
+                        let dst = seq_items[1].as_str().ok_or_else(|| {
+                            Error::custom("tuple second element must be a string")
+                        })?;
+
+                        result.push((src.to_string(), dst.to_string()));
+                    }
+                    _ => {
+                        return Err(Error::custom(
+                            "expected a string or a tuple of two strings"
+                        ));
+                    }
+                }
+            }
+
+            Ok(result)
+        }
+    }
+
+    deserializer.deserialize_seq(FlexibleBindVisitor)
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     #[serde(flatten)]
@@ -83,18 +142,18 @@ pub struct Entry {
     pub extends: Vec<String>,
     #[serde(default)]
     pub share: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
     pub bind: Vec<(String, String)>,
-    #[serde(default)]
-    pub ro_bind: Vec<String>,
-    #[serde(default)]
-    pub dev_bind: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
+    pub ro_bind: Vec<(String, String)>,
+    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
+    pub dev_bind: Vec<(String, String)>,
+    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
     pub bind_try: Vec<(String, String)>,
-    #[serde(default)]
-    pub ro_bind_try: Vec<String>,
-    #[serde(default)]
-    pub dev_bind_try: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
+    pub ro_bind_try: Vec<(String, String)>,
+    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
+    pub dev_bind_try: Vec<(String, String)>,
     #[serde(default)]
     pub tmpfs: Vec<String>,
     #[serde(default)]
@@ -172,7 +231,7 @@ impl Entry {
         let merged_ro_bind = if child.ro_bind.is_empty() {
             parent.ro_bind
         } else {
-            deduplicate_vec(merged_ro_bind)
+            deduplicate_vec_tuples(merged_ro_bind)
         };
 
         let mut merged_dev_bind = parent.dev_bind.clone();
@@ -180,7 +239,7 @@ impl Entry {
         let merged_dev_bind = if child.dev_bind.is_empty() {
             parent.dev_bind
         } else {
-            deduplicate_vec(merged_dev_bind)
+            deduplicate_vec_tuples(merged_dev_bind)
         };
 
         let mut merged_tmpfs = parent.tmpfs.clone();
@@ -217,7 +276,7 @@ impl Entry {
         let merged_ro_bind_try = if child.ro_bind_try.is_empty() {
             parent.ro_bind_try
         } else {
-            deduplicate_vec(merged_ro_bind_try)
+            deduplicate_vec_tuples(merged_ro_bind_try)
         };
 
         let mut merged_dev_bind_try = parent.dev_bind_try.clone();
@@ -225,7 +284,7 @@ impl Entry {
         let merged_dev_bind_try = if child.dev_bind_try.is_empty() {
             parent.dev_bind_try
         } else {
-            deduplicate_vec(merged_dev_bind_try)
+            deduplicate_vec_tuples(merged_dev_bind_try)
         };
 
         // Merge cap
@@ -553,7 +612,7 @@ mod tests {
 
         // Should have both base and command-specific settings
         assert_eq!(merged.share, vec!["user"]);
-        assert_eq!(merged.ro_bind, vec!["/usr"]);
+        assert_eq!(merged.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
         assert_eq!(merged.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
@@ -663,7 +722,7 @@ mod tests {
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.dev_bind, vec!["/dev/null", "/dev/random"]);
+        assert_eq!(node_cmd.dev_bind, vec![("/dev/null".to_string(), "/dev/null".to_string()), ("/dev/random".to_string(), "/dev/random".to_string())]);
     }
 
     #[test]
@@ -708,7 +767,7 @@ mod tests {
         assert_eq!(python_cmd.extends, vec!["strict"]);
         let merged_python = config.merge_with_template(python_cmd);
         assert_eq!(merged_python.share, vec!["user"]);
-        assert_eq!(merged_python.ro_bind, vec!["/usr"]);
+        assert_eq!(merged_python.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
         assert_eq!(merged_python.bind, vec![("~/.local".to_string(), "~/.local".to_string())]);
     }
 
@@ -979,7 +1038,7 @@ mod tests {
 
         // Should inherit from user's base model
         assert_eq!(with_template.share, vec!["user"]);
-        assert_eq!(with_template.ro_bind, vec!["/usr"]);
+        assert_eq!(with_template.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
         assert_eq!(with_template.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
@@ -1312,8 +1371,8 @@ mod tests {
         assert!(merged.share.contains(&"network".to_string()));
 
         // Should have ro_bind from both models (base first, then network)
-        assert!(merged.ro_bind.contains(&"/usr".to_string()));
-        assert!(merged.ro_bind.contains(&"/etc/resolv.conf".to_string()));
+        assert!(merged.ro_bind.contains(&("/usr".to_string(), "/usr".to_string())));
+        assert!(merged.ro_bind.contains(&("/etc/resolv.conf".to_string(), "/etc/resolv.conf".to_string())));
 
         // Should have bind from command itself
         assert!(merged.bind.contains(&("~/.npm".to_string(), "~/.npm".to_string())));

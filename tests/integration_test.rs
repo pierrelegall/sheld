@@ -48,7 +48,7 @@ fn test_full_config_loading_and_execution() {
     // Verify merging with base
     let merged = config.merge_with_base(node_cmd);
     assert!(merged.share.contains(&"user".to_string()));
-    assert!(merged.ro_bind.contains(&"/usr".to_string()));
+    assert!(merged.ro_bind.contains(&("/usr".to_string(), "/usr".to_string())));
     assert_eq!(merged.env.get("NODE_ENV"), Some(&"production".to_string()));
 
     // Verify python command is disabled
@@ -69,7 +69,7 @@ fn test_bwrap_builder_integration() {
         extends: vec![],
         share: vec![],
         bind: vec![("/tmp".to_string(), "/tmp".to_string())],
-        ro_bind: vec!["/usr".to_string()],
+        ro_bind: vec![("/usr".to_string(), "/usr".to_string())],
         dev_bind: vec![],
         bind_try: vec![],
         ro_bind_try: vec![],
@@ -227,7 +227,7 @@ fn test_command_show_formatting() {
         extends: vec![],
         share: vec![],
         bind: vec![],
-        ro_bind: vec!["/usr".to_string()],
+        ro_bind: vec![("/usr".to_string(), "/usr".to_string())],
         dev_bind: vec![],
         bind_try: vec![],
         ro_bind_try: vec![],
@@ -317,7 +317,7 @@ fn test_custom_template_name() {
     let python = config.get_command("python").unwrap();
     let merged_python = config.merge_with_template(python);
     assert_eq!(merged_python.share, vec!["user"]);
-    assert_eq!(merged_python.ro_bind, vec!["/usr"]);
+    assert_eq!(merged_python.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
 }
 
 #[test]
@@ -549,8 +549,8 @@ fn test_user_config_loaded_when_no_local_config() {
     let merged = config.merge_with_base(git_cmd);
     assert!(merged.share.contains(&"user".to_string()));
     assert!(merged.share.contains(&"network".to_string()));
-    assert!(merged.ro_bind.contains(&"/usr".to_string()));
-    assert!(merged.ro_bind.contains(&"/lib".to_string()));
+    assert!(merged.ro_bind.contains(&("/usr".to_string(), "/usr".to_string())));
+    assert!(merged.ro_bind.contains(&("/lib".to_string(), "/lib".to_string())));
     assert_eq!(
         merged.env.get("GIT_AUTHOR_NAME"),
         Some(&"TestUser".to_string())

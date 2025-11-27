@@ -56,19 +56,21 @@ impl WrappedCommandBuilder {
         }
 
         // Handle read-only binds
-        for ro_bind in &self.config.ro_bind {
-            let expanded = shellexpand::full(ro_bind).unwrap_or_else(|_| ro_bind.into());
+        for (src, dst) in &self.config.ro_bind {
+            let src_expanded = shellexpand::full(src).unwrap_or_else(|_| src.into());
+            let dst_expanded = shellexpand::full(dst).unwrap_or_else(|_| dst.into());
             args.push("--ro-bind".to_string());
-            args.push(expanded.to_string());
-            args.push(expanded.to_string());
+            args.push(src_expanded.to_string());
+            args.push(dst_expanded.to_string());
         }
 
         // Handle device binds
-        for dev_bind in &self.config.dev_bind {
-            let expanded = shellexpand::full(dev_bind).unwrap_or_else(|_| dev_bind.into());
+        for (src, dst) in &self.config.dev_bind {
+            let src_expanded = shellexpand::full(src).unwrap_or_else(|_| src.into());
+            let dst_expanded = shellexpand::full(dst).unwrap_or_else(|_| dst.into());
             args.push("--dev-bind".to_string());
-            args.push(expanded.to_string());
-            args.push(expanded.to_string());
+            args.push(src_expanded.to_string());
+            args.push(dst_expanded.to_string());
         }
 
         // Handle bind-try
@@ -81,19 +83,21 @@ impl WrappedCommandBuilder {
         }
 
         // Handle read-only bind-try
-        for ro_bind in &self.config.ro_bind_try {
-            let expanded = shellexpand::full(ro_bind).unwrap_or_else(|_| ro_bind.into());
+        for (src, dst) in &self.config.ro_bind_try {
+            let src_expanded = shellexpand::full(src).unwrap_or_else(|_| src.into());
+            let dst_expanded = shellexpand::full(dst).unwrap_or_else(|_| dst.into());
             args.push("--ro-bind-try".to_string());
-            args.push(expanded.to_string());
-            args.push(expanded.to_string());
+            args.push(src_expanded.to_string());
+            args.push(dst_expanded.to_string());
         }
 
         // Handle device bind-try
-        for dev_bind in &self.config.dev_bind_try {
-            let expanded = shellexpand::full(dev_bind).unwrap_or_else(|_| dev_bind.into());
+        for (src, dst) in &self.config.dev_bind_try {
+            let src_expanded = shellexpand::full(src).unwrap_or_else(|_| src.into());
+            let dst_expanded = shellexpand::full(dst).unwrap_or_else(|_| dst.into());
             args.push("--dev-bind-try".to_string());
-            args.push(expanded.to_string());
-            args.push(expanded.to_string());
+            args.push(src_expanded.to_string());
+            args.push(dst_expanded.to_string());
         }
 
         // Handle tmpfs
@@ -239,7 +243,7 @@ mod tests {
     #[test]
     fn test_build_args_ro_bind() {
         let mut config = create_test_config();
-        config.ro_bind = vec!["/usr".to_string()];
+        config.ro_bind = vec![("/usr".to_string(), "/usr".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -251,7 +255,7 @@ mod tests {
     #[test]
     fn test_build_args_dev_bind() {
         let mut config = create_test_config();
-        config.dev_bind = vec!["/dev/null".to_string()];
+        config.dev_bind = vec![("/dev/null".to_string(), "/dev/null".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -307,7 +311,7 @@ mod tests {
     fn test_build_args_combined() {
         let mut config = create_test_config();
         config.share = vec!["user".to_string()]; // Share only user namespace
-        config.ro_bind = vec!["/usr".to_string()];
+        config.ro_bind = vec![("/usr".to_string(), "/usr".to_string())];
         config.env.insert("TEST".to_string(), "value".to_string());
 
         let builder = WrappedCommandBuilder::new(config);
@@ -458,7 +462,7 @@ mod tests {
     #[test]
     fn test_ro_bind_try() {
         let mut config = create_test_config();
-        config.ro_bind_try = vec!["/usr".to_string()];
+        config.ro_bind_try = vec![("/usr".to_string(), "/usr".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -470,7 +474,7 @@ mod tests {
     #[test]
     fn test_dev_bind_try() {
         let mut config = create_test_config();
-        config.dev_bind_try = vec!["/dev/kvm".to_string()];
+        config.dev_bind_try = vec![("/dev/kvm".to_string(), "/dev/kvm".to_string())];
 
         let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
@@ -597,7 +601,7 @@ mod tests {
     fn test_all_new_options_combined() {
         let mut config = create_test_config();
         config.bind_try = vec![("/tmp".to_string(), "/tmp".to_string())];
-        config.ro_bind_try = vec!["/usr".to_string()];
+        config.ro_bind_try = vec![("/usr".to_string(), "/usr".to_string())];
         config.chdir = Some("/workspace".to_string());
         config.die_with_parent = true;
         config.new_session = true;
