@@ -23,7 +23,7 @@ fn test_full_config_loading_and_execution() {
             - /lib
 
         node:
-          extends: base
+          includes: base
           enabled: true
           bind:
             - [~/.npm, ~/.npm]
@@ -43,7 +43,7 @@ fn test_full_config_loading_and_execution() {
     // Verify node command
     let node_cmd = config.get_command("node").unwrap();
     assert!(node_cmd.enabled);
-    assert_eq!(node_cmd.extends, vec!["base"]);
+    assert_eq!(node_cmd.includes, vec!["base"]);
 
     // Verify merging with base
     let merged = config.merge_with_base(node_cmd);
@@ -66,7 +66,7 @@ fn test_bwrap_builder_integration() {
         entry_type: EntryType::Command,
         enabled: true,
         override_parent: false,
-        extends: vec![],
+        includes: vec![],
         share: vec![],
         bind: vec![("/tmp".to_string(), "/tmp".to_string())],
         ro_bind: vec![("/usr".to_string(), "/usr".to_string())],
@@ -119,7 +119,7 @@ fn test_config_with_all_features() {
             - [/src, /dest]
 
         test:
-          extends: base
+          includes: base
           enabled: true
           dev_bind:
             - /dev/null
@@ -224,7 +224,7 @@ fn test_command_show_formatting() {
         entry_type: EntryType::Command,
         enabled: true,
         override_parent: false,
-        extends: vec![],
+        includes: vec![],
         share: vec![],
         bind: vec![],
         ro_bind: vec![("/usr".to_string(), "/usr".to_string())],
@@ -298,12 +298,12 @@ fn test_custom_template_name() {
             - /usr
 
         node:
-          extends: minimal
+          includes: minimal
           bind:
             - [~/.npm, ~/.npm]
 
         python:
-          extends: strict
+          includes: strict
     "})
     .unwrap();
 
@@ -462,7 +462,7 @@ fn test_template_with_share_inheritance() {
             - /lib
 
         app:
-          extends: base
+          includes: base
           share:
             - network
     "})
@@ -503,7 +503,7 @@ fn test_user_config_loaded_when_no_local_config() {
             - /lib
 
         git:
-          extends: base
+          includes: base
           enabled: true
           share:
             - network
@@ -543,7 +543,7 @@ fn test_user_config_loaded_when_no_local_config() {
 
     let git_cmd = git_cmd.unwrap();
     assert!(git_cmd.enabled);
-    assert_eq!(git_cmd.extends, vec!["base"]);
+    assert_eq!(git_cmd.includes, vec!["base"]);
 
     // Verify merging with base works
     let merged = config.merge_with_base(git_cmd);
@@ -710,7 +710,7 @@ fn test_check_command_ignores_models() {
             - user
 
         node:
-          extends: base
+          includes: base
           enabled: true
     "};
 

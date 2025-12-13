@@ -120,9 +120,9 @@ network:
 
 # Define command-specific configurations
 node:
-  extends: base             # Optional: extend a single model
+  includes: base            # Optional: include a single model
   # OR
-  extends: [base, network]  # Optional: extend multiple models (applied in order)
+  includes: [base, network] # Optional: include multiple models (applied in order)
   enabled: true             # Optional: enable this command (default: true)
   override: false           # Optional: false=deep merge with parent, true=replace parent (default: false)
   bind:                     # Read-write mounts
@@ -208,10 +208,10 @@ share_all_namespaces:
     - cgroup  # Access to host cgroups
 
 fucmd:
-  extends: share_all_namespaces
+  includes: share_all_namespaces
 
 barcmd:
-  extends: share_all_namespaces
+  includes: share_all_namespaces
 ```
 
 ## Contributing

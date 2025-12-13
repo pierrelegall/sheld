@@ -16,7 +16,7 @@
 # Example command configuration
 # npm:
 #   enabled: true
-#   extends: base
+#   includes: base
 #   share:
 #     - network     # Allow network access
 #   bind:

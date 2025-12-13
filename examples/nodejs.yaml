@@ -14,7 +14,7 @@ base:
 npm:
   # type: command (default, can be omitted)
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # npm needs network for package downloads
   bind:
@@ -23,14 +23,14 @@ npm:
 
 node:
   enabled: true
-  extends: base
+  includes: base
   bind:
     - [~/.node_repl_history, ~/.node_repl_history]
     - [$PWD, /workspace]
 
 npx:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # npx needs network for package downloads
   bind:

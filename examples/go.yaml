@@ -13,7 +13,7 @@ base:
 
 go:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # go needs network for module downloads
   bind:

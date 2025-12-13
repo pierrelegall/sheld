@@ -13,7 +13,7 @@ base:
 
 cargo:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # cargo needs network for crate downloads
   bind:
@@ -23,14 +23,14 @@ cargo:
 
 rustc:
   enabled: true
-  extends: base
+  includes: base
   bind:
     - [~/.rustup, ~/.rustup]
     - [$PWD, /workspace]
 
 rustup:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # rustup needs network for toolchain downloads
   bind:

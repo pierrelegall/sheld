@@ -13,13 +13,13 @@ base:
 
 ruby:
   enabled: true
-  extends: base
+  includes: base
   bind:
     - [$PWD, /workspace]
 
 gem:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # gem needs network for package downloads
   bind:
@@ -28,7 +28,7 @@ gem:
 
 bundle:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # bundle needs network for package downloads
   bind:

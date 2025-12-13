@@ -6,17 +6,17 @@ use std::path::Path;
 
 pub mod loader;
 
-/// Custom deserializer for extends field that accepts both String and Vec<String>
-fn deserialize_extends<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+/// Custom deserializer for includes field that accepts both String and Vec<String>
+fn deserialize_includes<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,
 {
     use serde::de::{self, Visitor};
     use std::fmt;
 
-    struct ExtendsVisitor;
+    struct IncludesVisitor;
 
-    impl<'de> Visitor<'de> for ExtendsVisitor {
+    impl<'de> Visitor<'de> for IncludesVisitor {
         type Value = Vec<String>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -49,7 +49,7 @@ where
         }
     }
 
-    deserializer.deserialize_any(ExtendsVisitor)
+    deserializer.deserialize_any(IncludesVisitor)
 }
 
 /// Custom deserializer for bind-like fields that accepts both String and (String, String) tuple
@@ -138,8 +138,8 @@ pub struct Entry {
     pub enabled: bool,
     #[serde(default = "default_override", rename = "override")]
     pub override_parent: bool,
-    #[serde(default, deserialize_with = "deserialize_extends")]
-    pub extends: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_includes")]
+    pub includes: Vec<String>,
     #[serde(default)]
     pub share: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_flexible_bind")]
@@ -301,7 +301,7 @@ impl Entry {
             entry_type: child.entry_type,
             enabled: child.enabled,
             override_parent: child.override_parent,
-            extends: child.extends,
+            includes: child.includes,
             share: merged_share,
             bind: merged_bind,
             ro_bind: merged_ro_bind,
@@ -407,7 +407,7 @@ impl Config {
             .map(|entry| entry.clone().into())
     }
 
-    /// Merge command config with its templates (if extends is set)
+    /// Merge command config with its models (if includes is set)
     /// Models are applied in order, with later models overriding earlier ones
     pub fn merge_with_template(&self, cmd_config: Entry) -> Entry {
         // Save the command's original values to apply at the end
@@ -427,7 +427,7 @@ impl Config {
             entry_type: cmd_config.entry_type.clone(),
             enabled: cmd_config.enabled,
             override_parent: cmd_config.override_parent,
-            extends: vec![], // Clear extends after processing
+            includes: vec![], // Clear includes after processing
             share: vec![],
             bind: vec![],
             ro_bind: vec![],
@@ -444,8 +444,8 @@ impl Config {
             unset_env: vec![],
         };
 
-        // Iterate over each model in the extends list
-        for model_name in &cmd_config.extends {
+        // Iterate over each model in the includes list
+        for model_name in &cmd_config.includes {
             if let Some(template) = self.get_model(model_name) {
                 // Extend arrays with template values
                 result.share.extend(template.share.clone());
@@ -565,14 +565,14 @@ mod tests {
                 - /lib
 
             node:
-              extends: base
+              includes: base
               bind:
                 - [~/.npm, ~/.npm]
         "})
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, vec!["base"]);
+        assert_eq!(node_cmd.includes, vec!["base"]);
         assert_eq!(node_cmd.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
     }
 
@@ -602,7 +602,7 @@ mod tests {
                 - /usr
 
             node:
-              extends: base
+              includes: base
               bind:
                 - [~/.npm, ~/.npm]
         "})
@@ -617,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_without_extends() {
+    fn test_merge_without_includes() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -632,7 +632,7 @@ mod tests {
         let node_cmd = config.get_command("node").unwrap();
         let merged = config.merge_with_base(node_cmd.clone());
 
-        // Should not merge base since extends is not set
+        // Should not merge base since includes is not set
         assert_eq!(merged.share, node_cmd.share);
         assert_eq!(merged.bind, node_cmd.bind);
     }
@@ -741,11 +741,11 @@ mod tests {
                 - /usr
 
             node:
-              extends: minimal
+              includes: minimal
               bind:
                 - [~/.npm, ~/.npm]
             python:
-              extends: strict
+              includes: strict
               bind:
                 - [~/.local, ~/.local]
         "})
@@ -757,14 +757,14 @@ mod tests {
 
         // Test node with minimal template
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, vec!["minimal"]);
+        assert_eq!(node_cmd.includes, vec!["minimal"]);
         let merged_node = config.merge_with_template(node_cmd);
         assert_eq!(merged_node.share, vec!["user", "network"]);
         assert_eq!(merged_node.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
 
         // Test python with strict template
         let python_cmd = config.get_command("python").unwrap();
-        assert_eq!(python_cmd.extends, vec!["strict"]);
+        assert_eq!(python_cmd.includes, vec!["strict"]);
         let merged_python = config.merge_with_template(python_cmd);
         assert_eq!(merged_python.share, vec!["user"]);
         assert_eq!(merged_python.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
@@ -780,7 +780,7 @@ mod tests {
                 - user
 
             node:
-              extends: nonexistent
+              includes: nonexistent
               bind:
                 - [~/.npm, ~/.npm]
         "})
@@ -803,19 +803,19 @@ mod tests {
 
             node:
               enabled: true
-              extends: base
+              includes: base
               bind:
                 - [~/.npm, ~/.npm]
 
             python:
               enabled: false
-              extends: base
+              includes: base
               bind:
                 - [~/.local, ~/.local]
 
             rust:
               enabled: true
-              extends: base
+              includes: base
               share:
                 - network
         "})
@@ -845,9 +845,9 @@ mod tests {
         assert_eq!(with_network.len(), 1);
         assert!(with_network.contains_key("rust"));
 
-        // Filter entries that extend base
-        let extends_base = config.get_entries_with(|e| e.extends.contains(&"base".to_string()));
-        assert_eq!(extends_base.len(), 3);
+        // Filter entries that include base
+        let includes_base = config.get_entries_with(|e| e.includes.contains(&"base".to_string()));
+        assert_eq!(includes_base.len(), 3);
 
         // Complex filter: enabled commands with bind
         let enabled_with_bind = config.get_entries_with(|e| {
@@ -868,7 +868,7 @@ mod tests {
 
             node:
               enabled: true
-              extends: base
+              includes: base
               share:
                 - network
               bind:
@@ -876,7 +876,7 @@ mod tests {
 
             python:
               enabled: false
-              extends: base
+              includes: base
         "})
         .unwrap();
 
@@ -1013,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_local_command_extends_user_model() {
+    fn test_merge_local_command_includes_user_model() {
         let user_config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1026,7 +1026,7 @@ mod tests {
 
         let local_config = Config::from_yaml(indoc! {"
             node:
-              extends: base
+              includes: base
               bind:
                 - [~/.npm, ~/.npm]
         "})
@@ -1301,7 +1301,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extends_single_string_syntax() {
+    fn test_includes_single_string_syntax() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1309,16 +1309,16 @@ mod tests {
                 - user
 
             node:
-              extends: base
+              includes: base
         "})
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, vec!["base"]);
+        assert_eq!(node_cmd.includes, vec!["base"]);
     }
 
     #[test]
-    fn test_extends_list_syntax_multiple_models() {
+    fn test_includes_list_syntax_multiple_models() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1331,16 +1331,16 @@ mod tests {
                 - network
 
             node:
-              extends: [base, network]
+              includes: [base, network]
         "})
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, vec!["base", "network"]);
+        assert_eq!(node_cmd.includes, vec!["base", "network"]);
     }
 
     #[test]
-    fn test_extends_models_applied_in_order() {
+    fn test_includes_models_applied_in_order() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1357,7 +1357,7 @@ mod tests {
                 - /etc/resolv.conf
 
             node:
-              extends: [base, network]
+              includes: [base, network]
               bind:
                 - [~/.npm, ~/.npm]
         "})
@@ -1379,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extends_later_model_overrides_earlier_env() {
+    fn test_includes_later_model_overrides_earlier_env() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1393,7 +1393,7 @@ mod tests {
                 KEY: override_value
 
             node:
-              extends: [base, override]
+              includes: [base, override]
         "})
         .unwrap();
 
@@ -1407,7 +1407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extends_entry_settings_override_all_models() {
+    fn test_includes_entry_settings_override_all_models() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1420,7 +1420,7 @@ mod tests {
                 KEY: network_value
 
             node:
-              extends: [base, network]
+              includes: [base, network]
               env:
                 KEY: command_value
         "})
@@ -1434,7 +1434,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extends_skip_nonexistent_model() {
+    fn test_includes_skip_nonexistent_model() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
@@ -1447,7 +1447,7 @@ mod tests {
                 - network
 
             node:
-              extends: [base, nonexistent, network]
+              includes: [base, nonexistent, network]
         "})
         .unwrap();
 
@@ -1460,10 +1460,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extends_all_models_nonexistent() {
+    fn test_includes_all_models_nonexistent() {
         let config = Config::from_yaml(indoc! {"
             node:
-              extends: [foo, bar]
+              includes: [foo, bar]
               share:
                 - user
         "})
@@ -1477,17 +1477,17 @@ mod tests {
     }
 
     #[test]
-    fn test_extends_empty_list() {
+    fn test_includes_empty_list() {
         let config = Config::from_yaml(indoc! {"
             node:
-              extends: []
+              includes: []
               share:
                 - user
         "})
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.extends, Vec::<String>::new());
+        assert_eq!(node_cmd.includes, Vec::<String>::new());
 
         let merged = config.merge_with_template(node_cmd);
         assert_eq!(merged.share, vec!["user"]);

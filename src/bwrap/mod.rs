@@ -173,7 +173,7 @@ mod tests {
             entry_type: EntryType::Command,
             enabled: true,
             override_parent: false,
-            extends: vec![],
+            includes: vec![],
             share: vec![],
             bind: vec![],
             ro_bind: vec![],

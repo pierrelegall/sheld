@@ -13,7 +13,7 @@ base:
 
 python:
   enabled: true
-  extends: base
+  includes: base
   bind:
     - [~/.python_history, ~/.python_history]
     - [~/.local, ~/.local]
@@ -21,7 +21,7 @@ python:
 
 python3:
   enabled: true
-  extends: base
+  includes: base
   bind:
     - [~/.python_history, ~/.python_history]
     - [~/.local, ~/.local]
@@ -29,7 +29,7 @@ python3:
 
 pip:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # pip needs network for package downloads
   bind:
@@ -39,7 +39,7 @@ pip:
 
 pip3:
   enabled: true
-  extends: base
+  includes: base
   share:
     - network    # pip3 needs network for package downloads
   bind:
