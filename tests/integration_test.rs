@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use indoc::indoc;
-use sheld::config::loader::ConfigLoader;
 use sheld::config::EntryType;
+use sheld::config::loader::ConfigLoader;
 use std::env;
 use std::fs;
 use tempfile::TempDir;
@@ -48,7 +48,11 @@ fn test_full_config_loading_and_execution() {
     // Verify merging with base
     let merged = config.merge_with_base(node_cmd);
     assert!(merged.share.contains(&"user".to_string()));
-    assert!(merged.ro_bind.contains(&("/usr".to_string(), "/usr".to_string())));
+    assert!(
+        merged
+            .ro_bind
+            .contains(&("/usr".to_string(), "/usr".to_string()))
+    );
     assert_eq!(merged.env.get("NODE_ENV"), Some(&"production".to_string()));
 
     // Verify python command is disabled
@@ -87,9 +91,15 @@ fn test_bwrap_builder_integration() {
     let builder = WrappedCommandBuilder::new(config);
     let args = builder.build_args();
 
-    // All namespaces unshared by default
+    // No namespaces shared: all must be unshared
     assert!(args.contains(&"--unshare-net".to_string()));
     assert!(args.contains(&"--unshare-pid".to_string()));
+    assert!(args.contains(&"--unshare-ipc".to_string()));
+    assert!(args.contains(&"--unshare-uts".to_string()));
+    assert!(args.contains(&"--unshare-user".to_string()));
+    assert!(args.contains(&"--unshare-cgroup".to_string()));
+
+    // Mounts and env vars are passed through
     assert!(args.contains(&"--bind".to_string()));
     assert!(args.contains(&"--ro-bind".to_string()));
     assert!(args.contains(&"--tmpfs".to_string()));
@@ -311,13 +321,19 @@ fn test_custom_template_name() {
     let node = config.get_command("node").unwrap();
     let merged_node = config.merge_with_template(node);
     assert_eq!(merged_node.share, vec!["user", "network"]);
-    assert_eq!(merged_node.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
+    assert_eq!(
+        merged_node.bind,
+        vec![("~/.npm".to_string(), "~/.npm".to_string())]
+    );
 
     // Test python with strict template
     let python = config.get_command("python").unwrap();
     let merged_python = config.merge_with_template(python);
     assert_eq!(merged_python.share, vec!["user"]);
-    assert_eq!(merged_python.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
+    assert_eq!(
+        merged_python.ro_bind,
+        vec![("/usr".to_string(), "/usr".to_string())]
+    );
 }
 
 #[test]
@@ -549,8 +565,16 @@ fn test_user_config_loaded_when_no_local_config() {
     let merged = config.merge_with_base(git_cmd);
     assert!(merged.share.contains(&"user".to_string()));
     assert!(merged.share.contains(&"network".to_string()));
-    assert!(merged.ro_bind.contains(&("/usr".to_string(), "/usr".to_string())));
-    assert!(merged.ro_bind.contains(&("/lib".to_string(), "/lib".to_string())));
+    assert!(
+        merged
+            .ro_bind
+            .contains(&("/usr".to_string(), "/usr".to_string()))
+    );
+    assert!(
+        merged
+            .ro_bind
+            .contains(&("/lib".to_string(), "/lib".to_string()))
+    );
     assert_eq!(
         merged.env.get("GIT_AUTHOR_NAME"),
         Some(&"TestUser".to_string())
@@ -638,10 +662,7 @@ fn test_local_config_takes_precedence_over_user_config() {
 
     // Verify python command from user config is also present
     let python_cmd = config.get_command("python").unwrap();
-    assert_eq!(
-        python_cmd.env.get("FROM_USER"),
-        Some(&"yes".to_string())
-    );
+    assert_eq!(python_cmd.env.get("FROM_USER"), Some(&"yes".to_string()));
 
     // Restore original HOME and directory
     unsafe {
