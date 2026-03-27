@@ -31,8 +31,8 @@ fn main() -> Result<()> {
         Action::Wrap { command, args } => {
             wrap_command(&command, &args)?;
         }
-        Action::Bypass { command, args } => {
-            bypass_command(&command, &args)?;
+        Action::Unwrap { command, args } => {
+            unwrap_command(&command, &args)?;
         }
         Action::Activate { shell } => {
             print_shell_hook(&shell)?;
@@ -136,7 +136,7 @@ fn show_command(command: &str, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn bypass_command(command: &str, args: &[String]) -> Result<()> {
+fn unwrap_command(command: &str, args: &[String]) -> Result<()> {
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 

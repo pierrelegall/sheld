@@ -88,11 +88,11 @@ Then, all configured commands will be hooked into a wrapped command, like below:
 node script.js
 ```
 
-Configured commands can now be bypassed with:
+Configured commands can now be unwrapped with:
 
 ```sh
 # Wrapping bypassed
-sheld bypass node script.js
+sheld unwrap node script.js
 ```
 
 ## CLI help

@@ -34,7 +34,7 @@ pub enum Action {
     },
 
     /// Execute a command without sandboxing (bypass hook system)
-    Bypass {
+    Unwrap {
         /// Command to execute
         command: String,
 
