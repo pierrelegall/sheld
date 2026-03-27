@@ -47,15 +47,29 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Extract the command name from a path (e.g., "/usr/bin/node" -> "node")
+fn get_command_basename(command: &str) -> &str {
+    std::path::Path::new(command)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(command)
+}
+
 fn wrap_command(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
-    let cmd_config = config
-        .get_command(command)
-        .context(format!("No configuration found for command '{}'", command))?;
+    let command_basename = get_command_basename(command);
+
+    let cmd_config = config.get_command(command_basename).context(format!(
+        "No configuration found for command '{}'",
+        command_basename
+    ))?;
 
     if !cmd_config.enabled {
-        bail!("Command '{}' is disabled in configuration", command);
+        bail!(
+            "Command '{}' is disabled in configuration",
+            command_basename
+        );
     }
 
     let merged_config = config.merge_with_base(cmd_config);
@@ -106,9 +120,12 @@ fn list_commands(simple: bool) -> Result<()> {
 fn show_command(command: &str, args: &[String]) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
-    let cmd_config = config
-        .get_command(command)
-        .context(format!("No configuration found for command '{}'", command))?;
+    let command_basename = get_command_basename(command);
+
+    let cmd_config = config.get_command(command_basename).context(format!(
+        "No configuration found for command '{}'",
+        command_basename
+    ))?;
 
     let merged_config = config.merge_with_base(cmd_config);
     let builder = WrappedCommandBuilder::new(merged_config);
@@ -199,17 +216,196 @@ fn print_shell_hook(shell_name: &str) -> Result<()> {
 fn check_command(command: &str, silent: bool) -> Result<()> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
-    let command_exists = config.get_command(command).is_some();
+    let command_basename = get_command_basename(command);
+
+    let command_exists = config.get_command(command_basename).is_some();
 
     if command_exists {
         if !silent {
-            println!("Command `{}` is configured", command);
+            println!("Command `{}` is configured", command_basename);
         }
         Ok(())
     } else {
         if !silent {
-            eprintln!("Command `{}` not found in configuration", command);
+            eprintln!("Command `{}` not found in configuration", command_basename);
         }
         bail!("Command not found")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_get_command_basename_simple_name() {
+        assert_eq!(get_command_basename("node"), "node");
+        assert_eq!(get_command_basename("npm"), "npm");
+        assert_eq!(get_command_basename("python"), "python");
+    }
+
+    #[test]
+    fn test_get_command_basename_absolute_path() {
+        assert_eq!(get_command_basename("/usr/bin/node"), "node");
+        assert_eq!(get_command_basename("/usr/local/bin/npm"), "npm");
+        assert_eq!(get_command_basename("/bin/python3"), "python3");
+    }
+
+    #[test]
+    fn test_get_command_basename_with_trailing_slash() {
+        assert_eq!(get_command_basename("/usr/bin/"), "bin");
+        assert_eq!(get_command_basename("/usr/local/"), "local");
+    }
+
+    #[test]
+    fn test_get_command_basename_relative_path() {
+        assert_eq!(get_command_basename("./node"), "node");
+        assert_eq!(get_command_basename("../bin/npm"), "npm");
+        assert_eq!(get_command_basename("./some/deep/path/to/cargo"), "cargo");
+    }
+
+    #[test]
+    fn test_check_command_with_simple_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+        let yaml = indoc! {"
+            node:
+              enabled: true
+              share:
+                - user
+        "};
+
+        fs::write(&config_path, yaml).unwrap();
+
+        let config = config::Config::from_file(&config_path).unwrap();
+
+        assert!(config.get_command("node").is_some());
+        assert!(config.get_command("node").unwrap().enabled);
+
+        assert!(config.get_command("python").is_none());
+    }
+
+    #[test]
+    fn test_check_command_with_absolute_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+        fs::write(
+            &config_path,
+            indoc! {"
+                node:
+                  enabled: true
+                  share:
+                    - user
+            "},
+        )
+        .unwrap();
+
+        let config = config::Config::from_file(&config_path).unwrap();
+
+        assert!(
+            config
+                .get_command(get_command_basename("/usr/bin/node"))
+                .is_some()
+        );
+
+        assert!(
+            config
+                .get_command(get_command_basename("/usr/bin/python"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_check_command_with_relative_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+        let yaml = indoc! {"
+            npm:
+              enabled: true
+              share:
+                - network
+        "};
+
+        fs::write(&config_path, yaml).unwrap();
+
+        let config = config::Config::from_file(&config_path).unwrap();
+
+        assert!(config.get_command(get_command_basename("./npm")).is_some());
+        assert!(
+            config
+                .get_command(get_command_basename("../bin/npm"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn test_show_command_with_simple_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+        let yaml = indoc! {"
+            node:
+              enabled: true
+              share:
+                - user
+        "};
+
+        fs::write(&config_path, yaml).unwrap();
+
+        let config = config::Config::from_file(&config_path).unwrap();
+
+        assert!(config.get_command(get_command_basename("node")).is_some());
+    }
+
+    #[test]
+    fn test_show_command_with_absolute_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+        let yaml = indoc! {"
+            node:
+              enabled: true
+              share:
+                - user
+        "};
+
+        fs::write(&config_path, yaml).unwrap();
+
+        let config = config::Config::from_file(&config_path).unwrap();
+
+        assert!(
+            config
+                .get_command(get_command_basename("/usr/bin/node"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn test_show_command_with_relative_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+
+        let yaml = indoc! {"
+            cargo:
+              enabled: true
+              share:
+                - user
+        "};
+
+        fs::write(&config_path, yaml).unwrap();
+
+        let config = config::Config::from_file(&config_path).unwrap();
+
+        assert!(
+            config
+                .get_command(get_command_basename("./cargo"))
+                .is_some()
+        );
     }
 }
