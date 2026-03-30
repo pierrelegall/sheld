@@ -3,7 +3,7 @@
 # Copyright (C) 2025 Pierre Le Gall
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Bash hook for Sheld to auto wrapb commands.
+# Bash hook for Sheld to auto wrap commands.
 # Note: It uses functions as wrappers,
 # so user defined functions can be redefined.
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod cli;
-mod shell_hooks;
+mod shell;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -10,7 +10,7 @@ use clap::Parser;
 use cli::{Action, Cli};
 use sheld::bwrap::WrappedCommandBuilder;
 use sheld::config::{self, loader::ConfigLoader};
-use shell_hooks::Shell;
+use shell::Shell;
 
 fn main() -> Result<()> {
     let input = Cli::parse();

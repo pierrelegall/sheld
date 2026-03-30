@@ -1,9 +1,9 @@
 // Copyright (C) 2025 Pierre Le Gall
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-const BASH_HOOK: &str = include_str!("bash_hook.sh");
-const ZSH_HOOK: &str = include_str!("zsh_hook.sh");
-const FISH_HOOK: &str = include_str!("fish_hook.fish");
+const BASH_HOOK: &str = include_str!("hook.bash");
+const ZSH_HOOK: &str = include_str!("hook.zsh");
+const FISH_HOOK: &str = include_str!("hook.fish");
 
 pub enum Shell {
     Bash,
