@@ -2,6 +2,10 @@
   SHELD
 </h3>
 
+<p align="center">
+  Sandbox any shell command via YAML profiles using Bubblewrap
+</p>
+
 <div align="center">
   <a href="https://github.com/pierrelegall/sheld/stargazers">
     <img src="https://img.shields.io/github/stars/pierrelegall/sheld?colorA=363a4f&colorB=b7bdf8&style=for-the-badge" />
