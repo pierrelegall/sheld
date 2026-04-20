@@ -64,12 +64,14 @@ Edit the `.sheld.yaml` file to define your command wraps:
 node:
   share:
     - network
-  bind:
-    - ~/.node_modules
-    - [$PWD, /workspace]
   ro_bind:
     - /usr
     - /lib
+  ro_bind_try:
+    - /lib64
+  bind:
+    - ~/.node_modules
+    - $PWD
 ```
 
 Run commands manually with:
