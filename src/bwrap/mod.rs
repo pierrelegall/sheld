@@ -3,7 +3,7 @@ use std::process::Command;
 
 use crate::config::Entry;
 
-const NAMESPACES: [&str; 6] = ["user", "pid", "network", "ipc", "uts", "cgroup"];
+const NAMESPACES: [&str; _] = ["user", "pid", "network", "ipc", "uts", "cgroup"];
 
 pub struct WrappedCommandBuilder {
     config: Entry,
@@ -142,6 +142,7 @@ impl WrappedCommandBuilder {
         let mut cmd = Command::new("bwrap");
         cmd.args(&bwrap_args);
         cmd.arg(command);
+        cmd.args(&self.config.args);
         cmd.args(command_args);
 
         let status = cmd.status()?;
@@ -155,6 +156,7 @@ impl WrappedCommandBuilder {
         let mut parts = vec!["bwrap".to_string()];
         parts.extend(bwrap_args);
         parts.push(command.to_string());
+        parts.extend(self.config.args.iter().cloned());
         parts.extend(command_args.iter().cloned());
 
         parts.join(" ")
@@ -188,6 +190,8 @@ mod tests {
             cap: vec![],
             env: HashMap::new(),
             unset_env: vec![],
+            alias: None,
+            args: vec![],
         }
     }
 
@@ -385,7 +389,6 @@ mod tests {
         // The expanded path should not contain ~
         assert!(!args[bind_idx + 1].contains('~'));
     }
-
 
     #[test]
     fn test_unshare_all_by_default() {
@@ -617,5 +620,28 @@ mod tests {
         assert!(args.contains(&"--ro-bind-try".to_string()));
         assert!(args.contains(&"--chdir".to_string()));
         assert!(args.contains(&"--cap-add".to_string()));
+    }
+
+    #[test]
+    fn test_args_inserted_before_user_args() {
+        let mut config = create_test_config();
+        config.args = vec!["--no-sandbox".to_string(), "--disable-gpu".to_string()];
+
+        let builder = WrappedCommandBuilder::new(config);
+        let cmd = builder.show("chromium", &["https://example.com".to_string()]);
+
+        // Verify ordering: command, then config args, then user args
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        let cmd_idx = parts.iter().position(|p| *p == "chromium").unwrap();
+        let no_sandbox_idx = parts.iter().position(|p| *p == "--no-sandbox").unwrap();
+        let disable_gpu_idx = parts.iter().position(|p| *p == "--disable-gpu").unwrap();
+        let url_idx = parts
+            .iter()
+            .position(|p| *p == "https://example.com")
+            .unwrap();
+
+        assert!(cmd_idx < no_sandbox_idx);
+        assert!(no_sandbox_idx < disable_gpu_idx);
+        assert!(disable_gpu_idx < url_idx);
     }
 }

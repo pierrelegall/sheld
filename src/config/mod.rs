@@ -87,9 +87,9 @@ where
                     }
                     // Handle tuple: ["/usr/share", "/share"] → ("/usr/share", "/share")
                     serde_yaml::Value::Sequence(seq_items) if seq_items.len() == 2 => {
-                        let src = seq_items[0].as_str().ok_or_else(|| {
-                            Error::custom("tuple first element must be a string")
-                        })?;
+                        let src = seq_items[0]
+                            .as_str()
+                            .ok_or_else(|| Error::custom("tuple first element must be a string"))?;
                         let dst = seq_items[1].as_str().ok_or_else(|| {
                             Error::custom("tuple second element must be a string")
                         })?;
@@ -97,9 +97,7 @@ where
                         result.push((src.to_string(), dst.to_string()));
                     }
                     _ => {
-                        return Err(Error::custom(
-                            "expected a string or a tuple of two strings"
-                        ));
+                        return Err(Error::custom("expected a string or a tuple of two strings"));
                     }
                 }
             }
@@ -168,6 +166,10 @@ pub struct Entry {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub unset_env: Vec<String>,
+    #[serde(default)]
+    pub alias: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 fn default_enabled() -> bool {
@@ -297,6 +299,7 @@ impl Entry {
         };
 
         // Scalar fields: child wins (including chdir, die_with_parent, new_session)
+        // `alias` is not merged
         Entry {
             entry_type: child.entry_type,
             enabled: child.enabled,
@@ -316,6 +319,8 @@ impl Entry {
             cap: merged_cap,
             env: merged_env,
             unset_env: merged_unset_env,
+            alias: child.alias,
+            args: child.args,
         }
     }
 }
@@ -442,6 +447,8 @@ impl Config {
             cap: vec![],
             env: HashMap::new(),
             unset_env: vec![],
+            alias: cmd_config.alias.clone(),
+            args: cmd_config.args.clone(),
         };
 
         // Iterate over each model in the includes list
@@ -550,7 +557,10 @@ mod tests {
         let node_cmd = commands.get("node").unwrap();
         assert!(node_cmd.enabled);
         assert_eq!(node_cmd.share, vec!["user", "network"]);
-        assert_eq!(node_cmd.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
+        assert_eq!(
+            node_cmd.bind,
+            vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        );
     }
 
     #[test]
@@ -573,7 +583,10 @@ mod tests {
 
         let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.includes, vec!["base"]);
-        assert_eq!(node_cmd.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
+        assert_eq!(
+            node_cmd.bind,
+            vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        );
     }
 
     #[test]
@@ -612,8 +625,15 @@ mod tests {
 
         // Should have both base and command-specific settings
         assert_eq!(merged.share, vec!["user"]);
-        assert_eq!(merged.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
-        assert_eq!(merged.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
+
+        assert_eq!(
+            merged.ro_bind,
+            vec![("/usr".to_string(), "/usr".to_string())]
+        );
+        assert_eq!(
+            merged.bind,
+            vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        );
     }
 
     #[test]
@@ -722,7 +742,13 @@ mod tests {
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.dev_bind, vec![("/dev/null".to_string(), "/dev/null".to_string()), ("/dev/random".to_string(), "/dev/random".to_string())]);
+        assert_eq!(
+            node_cmd.dev_bind,
+            vec![
+                ("/dev/null".to_string(), "/dev/null".to_string()),
+                ("/dev/random".to_string(), "/dev/random".to_string())
+            ]
+        );
     }
 
     #[test]
@@ -760,15 +786,24 @@ mod tests {
         assert_eq!(node_cmd.includes, vec!["minimal"]);
         let merged_node = config.merge_with_template(node_cmd);
         assert_eq!(merged_node.share, vec!["user", "network"]);
-        assert_eq!(merged_node.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
+        assert_eq!(
+            merged_node.bind,
+            vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        );
 
         // Test python with strict template
         let python_cmd = config.get_command("python").unwrap();
         assert_eq!(python_cmd.includes, vec!["strict"]);
         let merged_python = config.merge_with_template(python_cmd);
         assert_eq!(merged_python.share, vec!["user"]);
-        assert_eq!(merged_python.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
-        assert_eq!(merged_python.bind, vec![("~/.local".to_string(), "~/.local".to_string())]);
+        assert_eq!(
+            merged_python.ro_bind,
+            vec![("/usr".to_string(), "/usr".to_string())]
+        );
+        assert_eq!(
+            merged_python.bind,
+            vec![("~/.local".to_string(), "~/.local".to_string())]
+        );
     }
 
     #[test]
@@ -1038,8 +1073,14 @@ mod tests {
 
         // Should inherit from user's base model
         assert_eq!(with_template.share, vec!["user"]);
-        assert_eq!(with_template.ro_bind, vec![("/usr".to_string(), "/usr".to_string())]);
-        assert_eq!(with_template.bind, vec![("~/.npm".to_string(), "~/.npm".to_string())]);
+        assert_eq!(
+            with_template.ro_bind,
+            vec![("/usr".to_string(), "/usr".to_string())]
+        );
+        assert_eq!(
+            with_template.bind,
+            vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        );
     }
 
     #[test]
@@ -1371,11 +1412,22 @@ mod tests {
         assert!(merged.share.contains(&"network".to_string()));
 
         // Should have ro_bind from both models (base first, then network)
-        assert!(merged.ro_bind.contains(&("/usr".to_string(), "/usr".to_string())));
-        assert!(merged.ro_bind.contains(&("/etc/resolv.conf".to_string(), "/etc/resolv.conf".to_string())));
+        assert!(
+            merged
+                .ro_bind
+                .contains(&("/usr".to_string(), "/usr".to_string()))
+        );
+        assert!(merged.ro_bind.contains(&(
+            "/etc/resolv.conf".to_string(),
+            "/etc/resolv.conf".to_string()
+        )));
 
         // Should have bind from command itself
-        assert!(merged.bind.contains(&("~/.npm".to_string(), "~/.npm".to_string())));
+        assert!(
+            merged
+                .bind
+                .contains(&("~/.npm".to_string(), "~/.npm".to_string()))
+        );
     }
 
     #[test]
@@ -1491,5 +1543,97 @@ mod tests {
 
         let merged = config.merge_with_template(node_cmd);
         assert_eq!(merged.share, vec!["user"]);
+    }
+
+    #[test]
+    fn test_alias_not_merged_from_parent() {
+        // Parent has alias, child does not — child should not inherit it
+        let parent = Config::from_yaml(indoc! {"
+            chromium-dev:
+              alias: chromium
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let child = Config::from_yaml(indoc! {"
+            chromium-dev:
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent, child);
+        let cmd = merged.get_command("chromium-dev").unwrap();
+        assert_eq!(cmd.alias, None);
+    }
+
+    #[test]
+    fn test_alias_kept_when_set_on_child() {
+        // Child sets alias — it should be present after merge
+        let parent = Config::from_yaml(indoc! {"
+            chromium-dev:
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let child = Config::from_yaml(indoc! {"
+            chromium-dev:
+              alias: chromium
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent, child);
+        let cmd = merged.get_command("chromium-dev").unwrap();
+        assert_eq!(cmd.alias, Some("chromium".to_string()));
+    }
+
+    #[test]
+    fn test_args_not_merged_from_parent() {
+        let parent = Config::from_yaml(indoc! {"
+            chromium-dev:
+              args:
+                - --no-sandbox
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let child = Config::from_yaml(indoc! {"
+            chromium-dev:
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent, child);
+        let cmd = merged.get_command("chromium-dev").unwrap();
+        assert_eq!(cmd.args, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_args_kept_when_set_on_child() {
+        let parent = Config::from_yaml(indoc! {"
+            chromium-dev:
+              share:
+                - user
+        "})
+        .unwrap();
+
+        let child = Config::from_yaml(indoc! {"
+            chromium-dev:
+              args:
+                - --no-sandbox
+              share:
+                - network
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent, child);
+        let cmd = merged.get_command("chromium-dev").unwrap();
+        assert_eq!(cmd.args, vec!["--no-sandbox"]);
     }
 }

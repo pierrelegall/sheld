@@ -73,9 +73,13 @@ fn wrap_command(command: &str, args: &[String]) -> Result<()> {
     }
 
     let merged_config = config.merge_with_base(cmd_config);
+    let effective_command = merged_config
+        .alias
+        .clone()
+        .unwrap_or_else(|| command_basename.to_string());
     let builder = WrappedCommandBuilder::new(merged_config);
 
-    let exit_code = builder.exec(command, args)?;
+    let exit_code = builder.exec(&effective_command, args)?;
 
     std::process::exit(exit_code)
 }
@@ -128,9 +132,13 @@ fn show_command(command: &str, args: &[String]) -> Result<()> {
     ))?;
 
     let merged_config = config.merge_with_base(cmd_config);
+    let effective_command = merged_config
+        .alias
+        .clone()
+        .unwrap_or_else(|| command_basename.to_string());
     let builder = WrappedCommandBuilder::new(merged_config);
 
-    let cmd_line = builder.show(command, args);
+    let cmd_line = builder.show(&effective_command, args);
     println!("{}", cmd_line);
 
     Ok(())

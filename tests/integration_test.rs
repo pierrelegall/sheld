@@ -85,6 +85,8 @@ fn test_bwrap_builder_integration() {
         cap: vec![],
         env: HashMap::new(),
         unset_env: vec![],
+        alias: None,
+        args: vec![],
     };
     config.env.insert("TEST".to_string(), "value".to_string());
 
@@ -249,6 +251,8 @@ fn test_command_show_formatting() {
         cap: vec![],
         env: HashMap::new(),
         unset_env: vec![],
+        alias: None,
+        args: vec![],
     };
 
     let builder = WrappedCommandBuilder::new(config);
