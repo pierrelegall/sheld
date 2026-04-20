@@ -50,6 +50,11 @@ cd sheld
 cargo build --release
 ```
 
+From AUR package (ArchLinux):
+
+- [source package](https://aur.archlinux.org/packages/sheld)
+- [binary package](https://aur.archlinux.org/packages/sheld-bin)
+
 ## Quick Start
 
 Initialize a configuration file:
