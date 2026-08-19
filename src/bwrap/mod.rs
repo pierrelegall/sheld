@@ -3,7 +3,7 @@ use std::process::Command;
 
 use crate::config::Entry;
 
-const NAMESPACES: [&str; _] = ["user", "pid", "network", "ipc", "uts", "cgroup"];
+const NAMESPACES: [&str; 6] = ["user", "pid", "network", "ipc", "uts", "cgroup"];
 
 pub struct WrappedCommandBuilder {
     config: Entry,
