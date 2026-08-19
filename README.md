@@ -72,12 +72,16 @@ node:
   ro_bind:
     - /usr
     - /lib
+    - ~/.node_modules
   ro_bind_try:
     - /lib64
   bind:
-    - ~/.node_modules
-    - $PWD
+    - .
 ```
+
+Relative paths are resolved against the directory containing `.sheld.yaml`, not the current working directory.
+This means you can run commands from any subdirectory and the binds stay consistent.
+Use `$PWD` if you need the runtime working directory instead.
 
 Run commands manually with:
 
@@ -145,8 +149,10 @@ node:
   enabled: true             # Optional: enable this command (default: true)
   override: false           # Optional: false=deep merge with parent, true=replace parent (default: false)
   bind:                     # Read-write mounts
-    - ~/.node_modules
-    - [$PWD, /workspace]
+    - ~/.node_modules       # Sugar: ~ binds to $HOME
+    - [$PWD, /app]          # $PWD = runtime working directory
+    - [./src, /app/src]     # Relative to .sheld.yaml dir
+    - .                     # Sugar: binds .sheld.yaml dir to itself
   ro_bind:                  # Read-only mounts
     - /etc/resolv.conf
   dev_bind:                 # Device bind mounts

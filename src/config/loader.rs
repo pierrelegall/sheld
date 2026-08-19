@@ -101,30 +101,29 @@ impl ConfigLoader {
     /// Load config from the found path
     /// If both user and local configs exist, merge them (local overrides user)
     pub fn load() -> Result<Option<Config>> {
-        let user_config = Self::get_user_config_file()?;
-        let local_config = Self::get_local_config_file()?;
+        Ok(Self::load_with_dir()?.0)
+    }
 
-        match (user_config, local_config) {
+    /// Load config and return it along with the local config directory.
+    /// Avoids a redundant directory walk when the caller needs both.
+    pub fn load_with_dir() -> Result<(Option<Config>, Option<PathBuf>)> {
+        let user_config = Self::get_user_config_file()?;
+        let local_config_dir = Self::get_local_config_dir()?;
+        let local_config = local_config_dir
+            .as_ref()
+            .map(|dir| dir.join(LOCAL_CONFIG_FILE_NAME));
+
+        let config = match (user_config, local_config) {
             (Some(user_path), Some(local_path)) => {
-                // Both exist: merge them (local overrides user)
                 let user = Config::from_file(&user_path)?;
                 let local = Config::from_file(&local_path)?;
-                Ok(Some(Config::merge(user, local)))
+                Some(Config::merge(user, local))
             }
-            (Some(user_path), None) => {
-                // Only user config exists
-                let config = Config::from_file(&user_path)?;
-                Ok(Some(config))
-            }
-            (None, Some(local_path)) => {
-                // Only local config exists
-                let config = Config::from_file(&local_path)?;
-                Ok(Some(config))
-            }
-            (None, None) => {
-                // No config exists
-                Ok(None)
-            }
-        }
+            (Some(user_path), None) => Some(Config::from_file(&user_path)?),
+            (None, Some(local_path)) => Some(Config::from_file(&local_path)?),
+            (None, None) => None,
+        };
+
+        Ok((config, local_config_dir))
     }
 }

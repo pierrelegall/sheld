@@ -90,7 +90,7 @@ fn test_bwrap_builder_integration() {
     };
     config.env.insert("TEST".to_string(), "value".to_string());
 
-    let builder = WrappedCommandBuilder::new(config);
+    let builder = WrappedCommandBuilder::new(config, None);
     let args = builder.build_args();
 
     // No namespaces shared: all must be unshared
@@ -161,7 +161,7 @@ fn test_config_with_all_features() {
 
     // Build and verify bwrap args
     use sheld::bwrap::WrappedCommandBuilder;
-    let builder = WrappedCommandBuilder::new(merged);
+    let builder = WrappedCommandBuilder::new(merged, None);
     let args = builder.build_args();
 
     // User is shared, so no --unshare-user
@@ -255,7 +255,7 @@ fn test_command_show_formatting() {
         args: vec![],
     };
 
-    let builder = WrappedCommandBuilder::new(config);
+    let builder = WrappedCommandBuilder::new(config, None);
     let cmd = builder.show("ls", &["-la".to_string(), "/tmp".to_string()]);
 
     // Verify command format
@@ -355,7 +355,7 @@ fn test_unshare_all_by_default_integration() {
     .unwrap();
 
     let isolated_cmd = config.get_command("isolated").unwrap();
-    let builder = WrappedCommandBuilder::new(isolated_cmd);
+    let builder = WrappedCommandBuilder::new(isolated_cmd, None);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // All namespaces should be unshared
@@ -385,7 +385,7 @@ fn test_share_specific_namespaces_integration() {
     .unwrap();
 
     let network_cmd = config.get_command("network_enabled").unwrap();
-    let builder = WrappedCommandBuilder::new(network_cmd);
+    let builder = WrappedCommandBuilder::new(network_cmd, None);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User and network should NOT be unshared
@@ -418,7 +418,7 @@ fn test_share_multiple_namespaces_integration() {
     .unwrap();
 
     let relaxed_cmd = config.get_command("relaxed").unwrap();
-    let builder = WrappedCommandBuilder::new(relaxed_cmd);
+    let builder = WrappedCommandBuilder::new(relaxed_cmd, None);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User, network, and ipc should NOT be unshared
@@ -454,7 +454,7 @@ fn test_share_all_namespaces_integration() {
     .unwrap();
 
     let no_isolation_cmd = config.get_command("no_isolation").unwrap();
-    let builder = WrappedCommandBuilder::new(no_isolation_cmd);
+    let builder = WrappedCommandBuilder::new(no_isolation_cmd, None);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // No namespaces should be unshared
@@ -490,7 +490,7 @@ fn test_template_with_share_inheritance() {
 
     let app_cmd = config.get_command("app").unwrap();
     let merged = config.merge_with_template(app_cmd);
-    let builder = WrappedCommandBuilder::new(merged);
+    let builder = WrappedCommandBuilder::new(merged, None);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User and network should NOT be unshared (inherited + added)
@@ -748,4 +748,59 @@ fn test_check_command_ignores_models() {
     assert!(config.get_command("base").is_none());
     // But commands are found
     assert!(config.get_command("node").is_some());
+}
+
+#[test]
+fn test_relative_bind_resolved_against_config_dir() {
+    use sheld::WrappedCommandBuilder;
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
+    let sub_dir = temp_dir.path().join("subdir");
+    fs::create_dir(&sub_dir).unwrap();
+
+    let yaml = indoc! {"
+        node:
+          enabled: true
+          bind:
+            - .
+            - [./src, /workspace/src]
+          chdir: .
+    "};
+
+    fs::write(&config_path, yaml).unwrap();
+    fs::create_dir_all(temp_dir.path().join("src")).unwrap();
+
+    let original_dir = env::current_dir().unwrap();
+    env::set_current_dir(&sub_dir).unwrap();
+
+    let (config, config_dir) = ConfigLoader::load_with_dir().unwrap();
+    let config = config.expect("config should be found");
+    let config_dir = config_dir.expect("config dir should be found");
+
+    assert_eq!(config_dir, temp_dir.path());
+
+    let cmd_config = config.get_command("node").unwrap();
+    let merged = config.merge_with_base(cmd_config);
+    let builder = WrappedCommandBuilder::new(merged, Some(config_dir));
+    let args = builder.build_args();
+
+    // Sugar syntax "." should resolve to the config dir on both sides
+    let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
+    assert_eq!(args[bind_idx + 1], temp_dir.path().to_str().unwrap());
+    assert_eq!(args[bind_idx + 2], temp_dir.path().to_str().unwrap());
+
+    // Tuple syntax [./src, /workspace/src] should resolve src only
+    let second_bind = args.iter().rposition(|x| x == "--bind").unwrap();
+    assert_eq!(
+        args[second_bind + 1],
+        temp_dir.path().join("src").to_str().unwrap()
+    );
+    assert_eq!(args[second_bind + 2], "/workspace/src");
+
+    // chdir "." should resolve to config dir
+    let chdir_idx = args.iter().position(|x| x == "--chdir").unwrap();
+    assert_eq!(args[chdir_idx + 1], temp_dir.path().to_str().unwrap());
+
+    env::set_current_dir(original_dir).unwrap();
 }

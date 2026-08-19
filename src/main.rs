@@ -56,7 +56,8 @@ fn get_command_basename(command: &str) -> &str {
 }
 
 fn wrap_command(command: &str, args: &[String]) -> Result<()> {
-    let config = ConfigLoader::load()?.context("No configuration found")?;
+    let (config, config_dir) = ConfigLoader::load_with_dir()?;
+    let config = config.context("No configuration found")?;
 
     let command_basename = get_command_basename(command);
 
@@ -77,7 +78,7 @@ fn wrap_command(command: &str, args: &[String]) -> Result<()> {
         .alias
         .clone()
         .unwrap_or_else(|| command_basename.to_string());
-    let builder = WrappedCommandBuilder::new(merged_config);
+    let builder = WrappedCommandBuilder::new(merged_config, config_dir);
 
     let exit_code = builder.exec(&effective_command, args)?;
 
@@ -122,7 +123,8 @@ fn list_commands(simple: bool) -> Result<()> {
 }
 
 fn show_command(command: &str, args: &[String]) -> Result<()> {
-    let config = ConfigLoader::load()?.context("No configuration found")?;
+    let (config, config_dir) = ConfigLoader::load_with_dir()?;
+    let config = config.context("No configuration found")?;
 
     let command_basename = get_command_basename(command);
 
@@ -136,7 +138,7 @@ fn show_command(command: &str, args: &[String]) -> Result<()> {
         .alias
         .clone()
         .unwrap_or_else(|| command_basename.to_string());
-    let builder = WrappedCommandBuilder::new(merged_config);
+    let builder = WrappedCommandBuilder::new(merged_config, config_dir);
 
     let cmd_line = builder.show(&effective_command, args);
     println!("{}", cmd_line);
