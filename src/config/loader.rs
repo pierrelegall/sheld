@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::Config;
 
@@ -13,102 +13,79 @@ const LOCAL_CONFIG_FILE_NAME: &str = ".sheld.yaml";
 /// User config file name
 const USER_CONFIG_FILE_NAME: &str = "default.yaml";
 
-/// User config directory path relative to HOME
+/// User config directory path relative to HOME (for display)
 const USER_CONFIG_DIR_PATH: &str = "~/.config/sheld";
+
+/// User config subdirectory relative to home
+const USER_CONFIG_DIR_RELATIVE: &str = ".config/sheld";
 
 pub struct ConfigLoader;
 
 impl ConfigLoader {
-    /// Get the local config file name
+    // --- Constants ---
+
     pub fn local_config_name() -> &'static str {
         LOCAL_CONFIG_FILE_NAME
     }
 
-    /// Get the user config file name
     pub fn user_config_name() -> &'static str {
         USER_CONFIG_FILE_NAME
     }
 
-    /// Get the user config directory path (constant, not expanded)
     pub fn user_config_dir() -> &'static str {
         USER_CONFIG_DIR_PATH
     }
 
-    /// Get the directory containing the local config file by walking up from current directory
-    /// Returns None if no directory contains a local config file
-    pub fn get_local_config_dir() -> Result<Option<PathBuf>> {
-        let current_dir = env::current_dir().context("Failed to get current directory")?;
-        let mut dir = current_dir.as_path();
+    // --- Core logic (explicit paths, no global state) ---
 
+    /// Walk up from `start` to find the directory containing a local config file.
+    pub fn get_local_config_dir_from(start: &Path) -> Option<PathBuf> {
+        let mut dir = start;
         loop {
             let config_path = dir.join(LOCAL_CONFIG_FILE_NAME);
             if config_path.exists() {
-                return Ok(Some(dir.to_path_buf()));
+                return Some(dir.to_path_buf());
             }
-
-            // Move to parent directory
             match dir.parent() {
                 Some(parent) => dir = parent,
                 None => break,
             }
         }
-
-        Ok(None)
+        None
     }
 
-    /// Get the user config directory (expanded) path
-    pub fn get_user_config_dir() -> PathBuf {
-        let expanded_dir = shellexpand::tilde(USER_CONFIG_DIR_PATH);
-        PathBuf::from(expanded_dir.as_ref())
+    /// Derive the local config file path by walking up from `start`.
+    pub fn get_local_config_file_from(start: &Path) -> Option<PathBuf> {
+        Self::get_local_config_dir_from(start).map(|dir| dir.join(LOCAL_CONFIG_FILE_NAME))
     }
 
-    /// Get config file path in hierarchical order (local first, then user)
-    pub fn get_config_file() -> Result<Option<PathBuf>> {
-        // Look for local config in current directory and parent directories
-        if let Some(local_config) = Self::get_local_config_file()? {
-            return Ok(Some(local_config));
-        }
-
-        // Look for user-level config
-        if let Some(user_config) = Self::get_user_config_file()? {
-            return Ok(Some(user_config));
-        }
-
-        Ok(None)
+    /// Build the user config directory from an explicit home path.
+    pub fn get_user_config_dir_from(home: &Path) -> PathBuf {
+        home.join(USER_CONFIG_DIR_RELATIVE)
     }
 
-    /// Get local config file by searching in current and parent directories
-    pub fn get_local_config_file() -> Result<Option<PathBuf>> {
-        if let Some(dir) = Self::get_local_config_dir()? {
-            let config_path = dir.join(LOCAL_CONFIG_FILE_NAME);
-            return Ok(Some(config_path));
-        }
-
-        Ok(None)
-    }
-
-    /// Get user-level config file
-    pub fn get_user_config_file() -> Result<Option<PathBuf>> {
-        let config_path = Self::get_user_config_dir().join(USER_CONFIG_FILE_NAME);
-
+    /// Build the user config file path from an explicit home path.
+    pub fn get_user_config_file_from(home: &Path) -> Option<PathBuf> {
+        let config_path = Self::get_user_config_dir_from(home).join(USER_CONFIG_FILE_NAME);
         if config_path.exists() {
-            return Ok(Some(config_path));
+            Some(config_path)
+        } else {
+            None
         }
-
-        Ok(None)
     }
 
-    /// Load config from the found path
-    /// If both user and local configs exist, merge them (local overrides user)
-    pub fn load() -> Result<Option<Config>> {
-        Ok(Self::load_with_dir()?.0)
+    /// Find config file path in hierarchical order (local first, then user).
+    pub fn get_config_file_from(start: &Path, home: &Path) -> Option<PathBuf> {
+        Self::get_local_config_file_from(start).or_else(|| Self::get_user_config_file_from(home))
     }
 
     /// Load config and return it along with the local config directory.
-    /// Avoids a redundant directory walk when the caller needs both.
-    pub fn load_with_dir() -> Result<(Option<Config>, Option<PathBuf>)> {
-        let user_config = Self::get_user_config_file()?;
-        let local_config_dir = Self::get_local_config_dir()?;
+    pub fn load_with_dir_from(
+        start: &Path,
+        home: &Path,
+    ) -> Result<(Option<Config>, Option<PathBuf>)> {
+        let user_config = Self::get_user_config_file_from(home);
+        let local_config_dir = Self::get_local_config_dir_from(start);
         let local_config = local_config_dir
             .as_ref()
             .map(|dir| dir.join(LOCAL_CONFIG_FILE_NAME));
@@ -125,5 +102,32 @@ impl ConfigLoader {
         };
 
         Ok((config, local_config_dir))
+    }
+
+    /// Load config from explicit paths.
+    pub fn load_from(start: &Path, home: &Path) -> Result<Option<Config>> {
+        Ok(Self::load_with_dir_from(start, home)?.0)
+    }
+
+    /// Find config file path (local first, then user) from the current directory and $HOME.
+    pub fn get_config_file() -> Result<Option<PathBuf>> {
+        let current_dir = env::current_dir().context("Failed to get current directory")?;
+        let home = shellexpand::tilde("~");
+        Ok(Self::get_config_file_from(
+            &current_dir,
+            Path::new(home.as_ref()),
+        ))
+    }
+
+    /// Load config from the current directory and $HOME.
+    pub fn load() -> Result<Option<Config>> {
+        Ok(Self::load_with_dir()?.0)
+    }
+
+    /// Load config and local config directory from the current directory and $HOME.
+    pub fn load_with_dir() -> Result<(Option<Config>, Option<PathBuf>)> {
+        let current_dir = env::current_dir().context("Failed to get current directory")?;
+        let home = shellexpand::tilde("~");
+        Self::load_with_dir_from(&current_dir, Path::new(home.as_ref()))
     }
 }

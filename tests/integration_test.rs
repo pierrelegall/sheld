@@ -4,7 +4,6 @@
 use indoc::indoc;
 use sheld::config::EntryType;
 use sheld::config::loader::ConfigLoader;
-use std::env;
 use std::fs;
 use tempfile::TempDir;
 
@@ -506,12 +505,10 @@ fn test_template_with_share_inheritance() {
 
 #[test]
 fn test_user_config_loaded_when_no_local_config() {
-    // Create a temp directory to act as fake HOME
     let fake_home = TempDir::new().unwrap();
     let config_dir = fake_home.path().join(".config").join("sheld");
     fs::create_dir_all(&config_dir).unwrap();
 
-    // Create user config at ~/.config/sheld/default.yaml
     let user_config_path = config_dir.join(ConfigLoader::user_config_name());
     let yaml = indoc! {"
         base:
@@ -534,38 +531,19 @@ fn test_user_config_loaded_when_no_local_config() {
     "};
     fs::write(&user_config_path, yaml).unwrap();
 
-    // Create a separate temp directory to use as current working directory
-    // (to ensure no local config exists)
     let work_dir = TempDir::new().unwrap();
 
-    // Save original HOME and current directory
-    let original_home = env::var("HOME").ok();
-    let original_dir = env::current_dir().unwrap();
+    let found_config = ConfigLoader::get_config_file_from(work_dir.path(), fake_home.path());
+    assert_eq!(found_config, Some(user_config_path));
 
-    // Set fake HOME and change to work directory
-    unsafe {
-        env::set_var("HOME", fake_home.path());
-    }
-    env::set_current_dir(work_dir.path()).unwrap();
+    let config = ConfigLoader::load_from(work_dir.path(), fake_home.path())
+        .unwrap()
+        .expect("config should be loaded");
 
-    // Test that user config is found and loaded
-    let found_config = ConfigLoader::get_config_file().unwrap();
-    assert!(found_config.is_some());
-    assert_eq!(found_config.unwrap(), user_config_path);
-
-    // Test that config loads correctly
-    let config = ConfigLoader::load().unwrap();
-    assert!(config.is_some());
-
-    let config = config.unwrap();
-    let git_cmd = config.get_command("git");
-    assert!(git_cmd.is_some());
-
-    let git_cmd = git_cmd.unwrap();
+    let git_cmd = config.get_command("git").unwrap();
     assert!(git_cmd.enabled);
     assert_eq!(git_cmd.includes, vec!["base"]);
 
-    // Verify merging with base works
     let merged = config.merge_with_base(git_cmd);
     assert!(merged.share.contains(&"user".to_string()));
     assert!(merged.share.contains(&"network".to_string()));
@@ -583,26 +561,14 @@ fn test_user_config_loaded_when_no_local_config() {
         merged.env.get("GIT_AUTHOR_NAME"),
         Some(&"TestUser".to_string())
     );
-
-    // Restore original HOME and directory
-    unsafe {
-        if let Some(home) = original_home {
-            env::set_var("HOME", home);
-        } else {
-            env::remove_var("HOME");
-        }
-    }
-    env::set_current_dir(original_dir).unwrap();
 }
 
 #[test]
 fn test_local_config_takes_precedence_over_user_config() {
-    // Create a temp directory to act as fake HOME with user config
     let fake_home = TempDir::new().unwrap();
     let config_dir = fake_home.path().join(".config").join("sheld");
     fs::create_dir_all(&config_dir).unwrap();
 
-    // Create user config with python command
     let user_config_path = config_dir.join(ConfigLoader::user_config_name());
     let user_yaml = indoc! {"
         python:
@@ -621,7 +587,6 @@ fn test_local_config_takes_precedence_over_user_config() {
     "};
     fs::write(&user_config_path, user_yaml).unwrap();
 
-    // Create work directory with local config
     let work_dir = TempDir::new().unwrap();
     let local_config_path = work_dir.path().join(ConfigLoader::local_config_name());
     let local_yaml = indoc! {"
@@ -635,48 +600,22 @@ fn test_local_config_takes_precedence_over_user_config() {
     "};
     fs::write(&local_config_path, local_yaml).unwrap();
 
-    // Save original HOME and current directory
-    let original_home = env::var("HOME").ok();
-    let original_dir = env::current_dir().unwrap();
+    let found_config = ConfigLoader::get_config_file_from(work_dir.path(), fake_home.path());
+    assert_eq!(found_config, Some(local_config_path));
 
-    // Set fake HOME and change to work directory
-    unsafe {
-        env::set_var("HOME", fake_home.path());
-    }
-    env::set_current_dir(work_dir.path()).unwrap();
+    let config = ConfigLoader::load_from(work_dir.path(), fake_home.path())
+        .unwrap()
+        .expect("config should be loaded");
 
-    // Test that local config is found by get_config_file()
-    let found_config = ConfigLoader::get_config_file().unwrap();
-    assert!(found_config.is_some());
-    assert_eq!(found_config.unwrap(), local_config_path);
-
-    // Test that both configs are merged (local overrides user for 'node', python from user is kept)
-    let config = ConfigLoader::load().unwrap();
-    assert!(config.is_some());
-
-    let config = config.unwrap();
     let node_cmd = config.get_command("node").unwrap();
-
-    // Verify local config overrides user config for 'node'
     assert!(node_cmd.share.contains(&"network".to_string()));
     assert_eq!(
         node_cmd.env.get("SOURCE"),
         Some(&"local_config".to_string())
     );
 
-    // Verify python command from user config is also present
     let python_cmd = config.get_command("python").unwrap();
     assert_eq!(python_cmd.env.get("FROM_USER"), Some(&"yes".to_string()));
-
-    // Restore original HOME and directory
-    unsafe {
-        if let Some(home) = original_home {
-            env::set_var("HOME", home);
-        } else {
-            env::remove_var("HOME");
-        }
-    }
-    env::set_current_dir(original_dir).unwrap();
 }
 #[test]
 fn test_check_command_exists() {
@@ -771,10 +710,11 @@ fn test_relative_bind_resolved_against_config_dir() {
     fs::write(&config_path, yaml).unwrap();
     fs::create_dir_all(temp_dir.path().join("src")).unwrap();
 
-    let original_dir = env::current_dir().unwrap();
-    env::set_current_dir(&sub_dir).unwrap();
+    // Use a separate temp dir as fake home to avoid finding a user config
+    let fake_home = TempDir::new().unwrap();
 
-    let (config, config_dir) = ConfigLoader::load_with_dir().unwrap();
+    let (config, config_dir) =
+        ConfigLoader::load_with_dir_from(&sub_dir, fake_home.path()).unwrap();
     let config = config.expect("config should be found");
     let config_dir = config_dir.expect("config dir should be found");
 
@@ -801,6 +741,4 @@ fn test_relative_bind_resolved_against_config_dir() {
     // chdir "." should resolve to config dir
     let chdir_idx = args.iter().position(|x| x == "--chdir").unwrap();
     assert_eq!(args[chdir_idx + 1], temp_dir.path().to_str().unwrap());
-
-    env::set_current_dir(original_dir).unwrap();
 }
