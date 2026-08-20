@@ -1,8 +1,8 @@
-use anyhow::{Context, Result};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 pub mod loader;
 
@@ -52,64 +52,34 @@ where
     deserializer.deserialize_any(IncludesVisitor)
 }
 
-/// Custom deserializer for bind-like fields that accepts both String and (String, String) tuple
-/// String is sugar: "/usr" becomes ("/usr", "/usr")
-/// Tuple is accepted as-is: ["/usr/share", "/share"] stays as is
-fn deserialize_flexible_bind<'de, D>(deserializer: D) -> Result<Vec<(String, String)>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::{self, Visitor};
-    use std::fmt;
-
-    struct FlexibleBindVisitor;
-
-    impl<'de> Visitor<'de> for FlexibleBindVisitor {
-        type Value = Vec<(String, String)>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a list of strings or tuples")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            use serde::de::Error;
-
-            let mut result = Vec::new();
-
-            while let Some(item) = seq.next_element::<serde_yaml::Value>()? {
-                match item {
-                    // Handle string: "/usr" → ("/usr", "/usr")
-                    serde_yaml::Value::String(s) => {
-                        result.push((s.clone(), s));
-                    }
-                    // Handle tuple: ["/usr/share", "/share"] → ("/usr/share", "/share")
-                    serde_yaml::Value::Sequence(seq_items) if seq_items.len() == 2 => {
-                        let src = seq_items[0]
-                            .as_str()
-                            .ok_or_else(|| Error::custom("tuple first element must be a string"))?;
-                        let dst = seq_items[1].as_str().ok_or_else(|| {
-                            Error::custom("tuple second element must be a string")
-                        })?;
-
-                        result.push((src.to_string(), dst.to_string()));
-                    }
-                    _ => {
-                        return Err(Error::custom("expected a string or a tuple of two strings"));
-                    }
-                }
-            }
-
-            Ok(result)
-        }
-    }
-
-    deserializer.deserialize_seq(FlexibleBindVisitor)
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawMount {
+    Path(String),
+    Pair((String, String)),
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+fn serialize_flexible_bind<S>(
+    binds: &HashMap<String, String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    use serde::ser::SerializeSeq;
+
+    let mut sequence = serializer.serialize_seq(Some(binds.len()))?;
+    for (dst, src) in binds {
+        if src == dst {
+            sequence.serialize_element(src)?;
+        } else {
+            sequence.serialize_element(&(src, dst))?;
+        }
+    }
+    sequence.end()
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Config {
     #[serde(flatten)]
     pub entries: HashMap<String, Entry>,
@@ -123,8 +93,7 @@ pub enum EntryType {
     Model,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Entry {
     #[serde(default, rename = "type")]
     pub entry_type: EntryType,
@@ -135,21 +104,21 @@ pub struct Entry {
     #[serde(default, deserialize_with = "deserialize_includes")]
     pub includes: Vec<String>,
     #[serde(default)]
-    pub share: Vec<String>,
-    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
-    pub bind: Vec<(String, String)>,
-    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
-    pub ro_bind: Vec<(String, String)>,
-    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
-    pub dev_bind: Vec<(String, String)>,
-    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
-    pub bind_try: Vec<(String, String)>,
-    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
-    pub ro_bind_try: Vec<(String, String)>,
-    #[serde(default, deserialize_with = "deserialize_flexible_bind")]
-    pub dev_bind_try: Vec<(String, String)>,
+    pub share: HashSet<String>,
+    #[serde(default, serialize_with = "serialize_flexible_bind")]
+    pub bind: HashMap<String, String>,
+    #[serde(default, serialize_with = "serialize_flexible_bind")]
+    pub ro_bind: HashMap<String, String>,
+    #[serde(default, serialize_with = "serialize_flexible_bind")]
+    pub dev_bind: HashMap<String, String>,
+    #[serde(default, serialize_with = "serialize_flexible_bind")]
+    pub bind_try: HashMap<String, String>,
+    #[serde(default, serialize_with = "serialize_flexible_bind")]
+    pub ro_bind_try: HashMap<String, String>,
+    #[serde(default, serialize_with = "serialize_flexible_bind")]
+    pub dev_bind_try: HashMap<String, String>,
     #[serde(default)]
-    pub tmpfs: Vec<String>,
+    pub tmpfs: HashSet<String>,
     #[serde(default)]
     pub chdir: Option<String>,
     #[serde(default = "default_die_with_parent")]
@@ -157,17 +126,161 @@ pub struct Entry {
     #[serde(default = "default_new_session")]
     pub new_session: bool,
     #[serde(default)]
-    pub cap: Vec<String>,
+    pub cap: HashSet<String>,
     #[serde(default)]
     pub setenv_if_unset: HashMap<String, String>,
     #[serde(default)]
     pub setenv: HashMap<String, String>,
     #[serde(default)]
-    pub unsetenv: Vec<String>,
+    pub unsetenv: HashSet<String>,
     #[serde(default)]
     pub alias: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawConfig {
+    #[serde(flatten)]
+    entries: HashMap<String, RawEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEntry {
+    #[serde(default, rename = "type")]
+    entry_type: EntryType,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    #[serde(default = "default_override", rename = "override")]
+    override_parent: bool,
+    #[serde(default, deserialize_with = "deserialize_includes")]
+    includes: Vec<String>,
+    #[serde(default)]
+    share: HashSet<String>,
+    #[serde(default)]
+    bind: Vec<RawMount>,
+    #[serde(default)]
+    ro_bind: Vec<RawMount>,
+    #[serde(default)]
+    dev_bind: Vec<RawMount>,
+    #[serde(default)]
+    bind_try: Vec<RawMount>,
+    #[serde(default)]
+    ro_bind_try: Vec<RawMount>,
+    #[serde(default)]
+    dev_bind_try: Vec<RawMount>,
+    #[serde(default)]
+    tmpfs: HashSet<String>,
+    #[serde(default)]
+    chdir: Option<String>,
+    #[serde(default = "default_die_with_parent")]
+    die_with_parent: bool,
+    #[serde(default = "default_new_session")]
+    new_session: bool,
+    #[serde(default)]
+    cap: HashSet<String>,
+    #[serde(default)]
+    setenv_if_unset: HashMap<String, String>,
+    #[serde(default)]
+    setenv: HashMap<String, String>,
+    #[serde(default)]
+    unsetenv: HashSet<String>,
+    #[serde(default)]
+    alias: Option<String>,
+    #[serde(default)]
+    args: Vec<String>,
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(component) => normalized.push(component),
+            Component::RootDir | Component::Prefix(_) => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn resolve_path(raw: &str, base_dir: &Path, entry: &str, field: &str) -> Result<String> {
+    let expanded = shellexpand::full(raw)
+        .with_context(|| format!("Failed to expand {field} path {raw:?} in entry {entry:?}"))?;
+    let path = Path::new(expanded.as_ref());
+    let absolute = if path.is_relative() {
+        base_dir.join(path)
+    } else {
+        path.to_path_buf()
+    };
+
+    let normalized = normalize_path(&absolute);
+    if !normalized.is_absolute() {
+        bail!("Resolved {field} path {raw:?} in entry {entry:?} is not absolute");
+    }
+    normalized.into_os_string().into_string().map_err(|path| {
+        anyhow::anyhow!(
+            "Resolved {field} path {:?} in entry {entry:?} is not valid UTF-8",
+            path
+        )
+    })
+}
+
+fn resolve_mounts(
+    mounts: Vec<RawMount>,
+    base_dir: &Path,
+    entry: &str,
+    field: &str,
+) -> Result<HashMap<String, String>> {
+    let mut resolved = HashMap::new();
+    for mount in mounts {
+        let (src, dst) = match mount {
+            RawMount::Path(path) => (path.clone(), path),
+            RawMount::Pair((src, dst)) => (src, dst),
+        };
+        let dst = resolve_path(&dst, base_dir, entry, field)?;
+        let src = resolve_path(&src, base_dir, entry, field)?;
+        resolved.insert(dst, src);
+    }
+    Ok(resolved)
+}
+
+impl RawEntry {
+    fn resolve(self, base_dir: &Path, entry: &str) -> Result<Entry> {
+        Ok(Entry {
+            entry_type: self.entry_type,
+            enabled: self.enabled,
+            override_parent: self.override_parent,
+            includes: self.includes,
+            share: self.share,
+            bind: resolve_mounts(self.bind, base_dir, entry, "bind")?,
+            ro_bind: resolve_mounts(self.ro_bind, base_dir, entry, "ro_bind")?,
+            dev_bind: resolve_mounts(self.dev_bind, base_dir, entry, "dev_bind")?,
+            bind_try: resolve_mounts(self.bind_try, base_dir, entry, "bind_try")?,
+            ro_bind_try: resolve_mounts(self.ro_bind_try, base_dir, entry, "ro_bind_try")?,
+            dev_bind_try: resolve_mounts(self.dev_bind_try, base_dir, entry, "dev_bind_try")?,
+            tmpfs: self
+                .tmpfs
+                .into_iter()
+                .map(|path| resolve_path(&path, base_dir, entry, "tmpfs"))
+                .collect::<Result<_>>()?,
+            chdir: self
+                .chdir
+                .map(|path| resolve_path(&path, base_dir, entry, "chdir"))
+                .transpose()?,
+            die_with_parent: self.die_with_parent,
+            new_session: self.new_session,
+            cap: self.cap,
+            setenv_if_unset: self.setenv_if_unset,
+            setenv: self.setenv,
+            unsetenv: self.unsetenv,
+            alias: self.alias,
+            args: self.args,
+        })
+    }
 }
 
 fn default_enabled() -> bool {
@@ -186,72 +299,31 @@ fn default_new_session() -> bool {
     false
 }
 
-/// Deduplicate a vector, preserving order (first occurrence kept)
-fn deduplicate_vec(vec: Vec<String>) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    vec.into_iter()
-        .filter(|item| seen.insert(item.clone()))
-        .collect()
-}
-
-/// Deduplicate a vector of tuples, preserving order (first occurrence kept)
-fn deduplicate_vec_tuples(vec: Vec<(String, String)>) -> Vec<(String, String)> {
-    let mut seen = std::collections::HashSet::new();
-    vec.into_iter()
-        .filter(|item| seen.insert(item.clone()))
-        .collect()
-}
-
 impl Entry {
     /// Deep merge parent and child entries
-    /// - Arrays: parent items first, then unique child items (deduplicated)
-    /// - Environment HashMaps: parent + child, child wins on conflicts
+    /// - Sets: parent and child items are combined
+    /// - HashMaps: parent + child, child wins on conflicts
     /// - Scalar fields: child value wins
     /// - Empty child arrays preserve parent arrays
     pub fn deep_merge(parent: Entry, child: Entry) -> Entry {
-        // Merge arrays: parent first, then unique child items
+        // Merge sets and maps with child values winning on conflicts.
         let mut merged_share = parent.share.clone();
-        merged_share.extend(child.share.clone());
-        let merged_share = if child.share.is_empty() {
-            parent.share
-        } else {
-            deduplicate_vec(merged_share)
-        };
+        merged_share.extend(child.share);
 
         let mut merged_bind = parent.bind.clone();
-        merged_bind.extend(child.bind.clone());
-        let merged_bind = if child.bind.is_empty() {
-            parent.bind
-        } else {
-            deduplicate_vec_tuples(merged_bind)
-        };
+        merged_bind.extend(child.bind);
 
         let mut merged_ro_bind = parent.ro_bind.clone();
-        merged_ro_bind.extend(child.ro_bind.clone());
-        let merged_ro_bind = if child.ro_bind.is_empty() {
-            parent.ro_bind
-        } else {
-            deduplicate_vec_tuples(merged_ro_bind)
-        };
+        merged_ro_bind.extend(child.ro_bind);
 
         let mut merged_dev_bind = parent.dev_bind.clone();
-        merged_dev_bind.extend(child.dev_bind.clone());
-        let merged_dev_bind = if child.dev_bind.is_empty() {
-            parent.dev_bind
-        } else {
-            deduplicate_vec_tuples(merged_dev_bind)
-        };
+        merged_dev_bind.extend(child.dev_bind);
 
         let mut merged_tmpfs = parent.tmpfs.clone();
-        merged_tmpfs.extend(child.tmpfs.clone());
-        let merged_tmpfs = if child.tmpfs.is_empty() {
-            parent.tmpfs
-        } else {
-            deduplicate_vec(merged_tmpfs)
-        };
+        merged_tmpfs.extend(child.tmpfs);
 
         let mut merged_unsetenv = parent.unsetenv.clone();
-        merged_unsetenv.extend(child.unsetenv.clone());
+        merged_unsetenv.extend(child.unsetenv);
 
         let mut merged_setenv_if_unset = parent.setenv_if_unset.clone();
         merged_setenv_if_unset.extend(child.setenv_if_unset);
@@ -259,39 +331,19 @@ impl Entry {
         let mut merged_setenv = parent.setenv.clone();
         merged_setenv.extend(child.setenv);
 
-        // Merge bind_try variants
+        // Merge bind_try variants.
         let mut merged_bind_try = parent.bind_try.clone();
-        merged_bind_try.extend(child.bind_try.clone());
-        let merged_bind_try = if child.bind_try.is_empty() {
-            parent.bind_try
-        } else {
-            deduplicate_vec_tuples(merged_bind_try)
-        };
+        merged_bind_try.extend(child.bind_try);
 
         let mut merged_ro_bind_try = parent.ro_bind_try.clone();
-        merged_ro_bind_try.extend(child.ro_bind_try.clone());
-        let merged_ro_bind_try = if child.ro_bind_try.is_empty() {
-            parent.ro_bind_try
-        } else {
-            deduplicate_vec_tuples(merged_ro_bind_try)
-        };
+        merged_ro_bind_try.extend(child.ro_bind_try);
 
         let mut merged_dev_bind_try = parent.dev_bind_try.clone();
-        merged_dev_bind_try.extend(child.dev_bind_try.clone());
-        let merged_dev_bind_try = if child.dev_bind_try.is_empty() {
-            parent.dev_bind_try
-        } else {
-            deduplicate_vec_tuples(merged_dev_bind_try)
-        };
+        merged_dev_bind_try.extend(child.dev_bind_try);
 
-        // Merge cap
+        // Merge cap.
         let mut merged_cap = parent.cap.clone();
-        merged_cap.extend(child.cap.clone());
-        let merged_cap = if child.cap.is_empty() {
-            parent.cap
-        } else {
-            deduplicate_vec(merged_cap)
-        };
+        merged_cap.extend(child.cap);
 
         // Scalar fields: child wins (including chdir, die_with_parent, new_session)
         // `alias` is not merged
@@ -323,19 +375,39 @@ impl Entry {
 
 impl Config {
     pub fn from_yaml(yaml: &str) -> Result<Self> {
-        let config: Config = serde_yaml::from_str(yaml).context("Failed to parse YAML config")?;
+        let current_dir = std::env::current_dir().context("Failed to get current directory")?;
+        Self::from_yaml_with_base_dir(yaml, &current_dir)
+    }
 
-        Ok(config)
+    fn from_yaml_with_base_dir(yaml: &str, base_dir: &Path) -> Result<Self> {
+        let raw: RawConfig = serde_yaml::from_str(yaml).context("Failed to parse YAML config")?;
+        let entries = raw
+            .entries
+            .into_iter()
+            .map(|(name, entry)| entry.resolve(base_dir, &name).map(|entry| (name, entry)))
+            .collect::<Result<_>>()?;
+
+        Ok(Self { entries })
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let yaml = fs::read_to_string(path.as_ref())
-            .context(format!("Failed to read config file: {:?}", path.as_ref()))?;
+        let path = path.as_ref();
+        let absolute_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .context("Failed to get current directory")?
+                .join(path)
+        };
+        let absolute_path = normalize_path(&absolute_path);
+        let yaml = fs::read_to_string(&absolute_path)
+            .with_context(|| format!("Failed to read config file: {absolute_path:?}"))?;
 
-        let config: Config = serde_yaml::from_str(&yaml)
-            .context(format!("Failed to parse YAML config {:?}", path.as_ref()))?;
-
-        Ok(config)
+        let base_dir = absolute_path
+            .parent()
+            .context("Configuration path has no parent directory")?;
+        Self::from_yaml_with_base_dir(&yaml, base_dir)
+            .with_context(|| format!("Failed to parse YAML config {absolute_path:?}"))
     }
 
     /// Get all entries
@@ -430,21 +502,21 @@ impl Config {
             enabled: cmd_config.enabled,
             override_parent: cmd_config.override_parent,
             includes: vec![], // Clear includes after processing
-            share: vec![],
-            bind: vec![],
-            ro_bind: vec![],
-            dev_bind: vec![],
-            bind_try: vec![],
-            ro_bind_try: vec![],
-            dev_bind_try: vec![],
-            tmpfs: vec![],
+            share: HashSet::new(),
+            bind: HashMap::new(),
+            ro_bind: HashMap::new(),
+            dev_bind: HashMap::new(),
+            bind_try: HashMap::new(),
+            ro_bind_try: HashMap::new(),
+            dev_bind_try: HashMap::new(),
+            tmpfs: HashSet::new(),
             chdir: cmd_config.chdir.clone(),
             die_with_parent: cmd_config.die_with_parent,
             new_session: cmd_config.new_session,
-            cap: vec![],
+            cap: HashSet::new(),
             setenv_if_unset: HashMap::new(),
             setenv: HashMap::new(),
-            unsetenv: vec![],
+            unsetenv: HashSet::new(),
             alias: cmd_config.alias.clone(),
             args: cmd_config.args.clone(),
         };
@@ -452,7 +524,7 @@ impl Config {
         // Iterate over each model in the includes list
         for model_name in &cmd_config.includes {
             if let Some(template) = self.get_model(model_name) {
-                // Extend arrays with template values
+                // Later models replace prior mount destinations and union set values.
                 result.share.extend(template.share.clone());
                 result.bind.extend(template.bind.clone());
                 result.ro_bind.extend(template.ro_bind.clone());
@@ -539,6 +611,23 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    fn mounts(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        let base_dir = std::env::current_dir().unwrap();
+        entries
+            .iter()
+            .map(|(src, dst)| {
+                (
+                    resolve_path(dst, &base_dir, "test", "bind").unwrap(),
+                    resolve_path(src, &base_dir, "test", "bind").unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    fn strings(entries: &[&str]) -> HashSet<String> {
+        entries.iter().map(|entry| entry.to_string()).collect()
+    }
+
     #[test]
     fn test_parse_basic_config() {
         let config = Config::from_yaml(indoc! {"
@@ -557,11 +646,100 @@ mod tests {
 
         let node_cmd = commands.get("node").unwrap();
         assert!(node_cmd.enabled);
-        assert_eq!(node_cmd.share, vec!["user", "network"]);
-        assert_eq!(
-            node_cmd.bind,
-            vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        assert_eq!(node_cmd.share, strings(&["user", "network"]));
+        assert_eq!(node_cmd.bind, mounts(&[("~/.npm", "~/.npm")]));
+    }
+
+    #[test]
+    fn test_bind_array_uses_destination_as_key_and_last_value_wins() {
+        let config = Config::from_yaml(indoc! {"
+            node:
+              bind:
+                - [/project-a, /workspace]
+                - [/project-b, /workspace]
+                - /tmp
+        "})
+        .unwrap();
+
+        let node = config.get_command("node").unwrap();
+        assert_eq!(node.bind.len(), 2);
+        assert_eq!(node.bind.get("/workspace"), Some(&"/project-b".to_string()));
+        assert_eq!(node.bind.get("/tmp"), Some(&"/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_bind_serialization_preserves_array_syntax() {
+        let config = Config::from_yaml(indoc! {"
+            node:
+              bind:
+                - /tmp
+                - [/project, /workspace]
+        "})
+        .unwrap();
+
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(yaml.contains("bind:"));
+        assert!(yaml.contains("- /tmp"));
+        assert!(yaml.contains("- - /project\n    - /workspace"));
+    }
+
+    #[test]
+    fn test_file_parsing_resolves_paths_before_mount_keying() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.yaml");
+        fs::write(
+            &config_path,
+            format!(
+                "node:\n  bind:\n    - [/first, .]\n    - [/second, {}]\n  tmpfs:\n    - ./tmp\n  chdir: $HOME\n",
+                directory.path().display()
+            ),
+        )
+        .unwrap();
+
+        let config = Config::from_file(&config_path).unwrap();
+        let node = config.get_command("node").unwrap();
+        let directory = directory.path().to_string_lossy().into_owned();
+        let home = std::env::var("HOME").unwrap();
+
+        assert_eq!(node.bind.len(), 1);
+        assert_eq!(node.bind.get(&directory), Some(&"/second".to_string()));
+        assert!(node.tmpfs.contains(&format!("{directory}/tmp")));
+        assert_eq!(node.chdir, Some(home));
+        assert!(node.bind.keys().all(|path| Path::new(path).is_absolute()));
+        assert!(node.bind.values().all(|path| Path::new(path).is_absolute()));
+        assert!(node.tmpfs.iter().all(|path| Path::new(path).is_absolute()));
+        assert!(
+            node.chdir
+                .as_ref()
+                .is_some_and(|path| Path::new(path).is_absolute())
         );
+    }
+
+    #[test]
+    fn test_relative_config_filename_resolves_model_paths_absolutely() {
+        let current_dir = std::env::current_dir().unwrap();
+        let mut config_file = NamedTempFile::new_in(&current_dir).unwrap();
+        config_file.write_all(b"node:\n  bind:\n    - .\n").unwrap();
+        let relative_path = config_file.path().strip_prefix(&current_dir).unwrap();
+
+        let config = Config::from_file(relative_path).unwrap();
+        let node = config.get_command("node").unwrap();
+        let current_dir = current_dir.to_string_lossy().into_owned();
+
+        assert_eq!(node.bind.get(&current_dir), Some(&current_dir));
+    }
+
+    #[test]
+    fn test_unset_path_variable_is_rejected() {
+        let error = Config::from_yaml(
+            "node:\n  bind:\n    - $SHELD_PATH_VARIABLE_THAT_MUST_NOT_EXIST_0A46D88E\n",
+        )
+        .unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(message.contains("SHELD_PATH_VARIABLE_THAT_MUST_NOT_EXIST_0A46D88E"));
+        assert!(message.contains("bind"));
+        assert!(message.contains("node"));
     }
 
     #[test]
@@ -584,10 +762,7 @@ mod tests {
 
         let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.includes, vec!["base"]);
-        assert_eq!(
-            node_cmd.bind,
-            vec![("~/.npm".to_string(), "~/.npm".to_string())]
-        );
+        assert_eq!(node_cmd.bind, mounts(&[("~/.npm", "~/.npm")]));
     }
 
     #[test]
@@ -625,16 +800,10 @@ mod tests {
         let merged = config.merge_with_base(node_cmd);
 
         // Should have both base and command-specific settings
-        assert_eq!(merged.share, vec!["user"]);
+        assert_eq!(merged.share, strings(&["user"]));
 
-        assert_eq!(
-            merged.ro_bind,
-            vec![("/usr".to_string(), "/usr".to_string())]
-        );
-        assert_eq!(
-            merged.bind,
-            vec![("~/.npm".to_string(), "~/.npm".to_string())]
-        );
+        assert_eq!(merged.ro_bind, mounts(&[("/usr", "/usr")]));
+        assert_eq!(merged.bind, mounts(&[("~/.npm", "~/.npm")]));
     }
 
     #[test]
@@ -722,7 +891,7 @@ mod tests {
             node_cmd.setenv.get("PATH"),
             Some(&"/custom/path".to_string())
         );
-        assert_eq!(node_cmd.unsetenv, vec!["DEBUG"]);
+        assert_eq!(node_cmd.unsetenv, strings(&["DEBUG"]));
     }
 
     #[test]
@@ -745,7 +914,7 @@ mod tests {
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.tmpfs, vec!["/tmp", "/var/tmp"]);
+        assert_eq!(node_cmd.tmpfs, strings(&["/tmp", "/var/tmp"]));
     }
 
     #[test]
@@ -760,10 +929,7 @@ mod tests {
         let node_cmd = config.get_command("node").unwrap();
         assert_eq!(
             node_cmd.dev_bind,
-            vec![
-                ("/dev/null".to_string(), "/dev/null".to_string()),
-                ("/dev/random".to_string(), "/dev/random".to_string())
-            ]
+            mounts(&[("/dev/null", "/dev/null"), ("/dev/random", "/dev/random")])
         );
     }
 
@@ -801,25 +967,16 @@ mod tests {
         let node_cmd = config.get_command("node").unwrap();
         assert_eq!(node_cmd.includes, vec!["minimal"]);
         let merged_node = config.merge_with_template(node_cmd);
-        assert_eq!(merged_node.share, vec!["user", "network"]);
-        assert_eq!(
-            merged_node.bind,
-            vec![("~/.npm".to_string(), "~/.npm".to_string())]
-        );
+        assert_eq!(merged_node.share, strings(&["user", "network"]));
+        assert_eq!(merged_node.bind, mounts(&[("~/.npm", "~/.npm")]));
 
         // Test python with strict template
         let python_cmd = config.get_command("python").unwrap();
         assert_eq!(python_cmd.includes, vec!["strict"]);
         let merged_python = config.merge_with_template(python_cmd);
-        assert_eq!(merged_python.share, vec!["user"]);
-        assert_eq!(
-            merged_python.ro_bind,
-            vec![("/usr".to_string(), "/usr".to_string())]
-        );
-        assert_eq!(
-            merged_python.bind,
-            vec![("~/.local".to_string(), "~/.local".to_string())]
-        );
+        assert_eq!(merged_python.share, strings(&["user"]));
+        assert_eq!(merged_python.ro_bind, mounts(&[("/usr", "/usr")]));
+        assert_eq!(merged_python.bind, mounts(&[("~/.local", "~/.local")]));
     }
 
     #[test]
@@ -892,7 +1049,7 @@ mod tests {
         assert!(models.contains_key("base"));
 
         // Filter entries with network share
-        let with_network = config.get_entries_with(|e| e.share.contains(&"network".to_string()));
+        let with_network = config.get_entries_with(|e| e.share.contains("network"));
         assert_eq!(with_network.len(), 1);
         assert!(with_network.contains_key("rust"));
 
@@ -951,12 +1108,10 @@ mod tests {
         assert!(base_model.is_some());
 
         // Get entry with network share
-        let node_network =
-            config.get_entry_with("node", |e| e.share.contains(&"network".to_string()));
+        let node_network = config.get_entry_with("node", |e| e.share.contains("network"));
         assert!(node_network.is_some());
 
-        let python_network =
-            config.get_entry_with("python", |e| e.share.contains(&"network".to_string()));
+        let python_network = config.get_entry_with("python", |e| e.share.contains("network"));
         assert!(python_network.is_none());
 
         // Complex filter: enabled command with bind
@@ -987,7 +1142,7 @@ mod tests {
         let no_models = config.get_entries_with(|e| e.entry_type == EntryType::Model);
         assert_eq!(no_models.len(), 0);
 
-        let no_network = config.get_entries_with(|e| e.share.contains(&"network".to_string()));
+        let no_network = config.get_entries_with(|e| e.share.contains("network"));
         assert_eq!(no_network.len(), 0);
     }
 
@@ -1060,7 +1215,7 @@ mod tests {
         let node_cmd = merged.get_command("node").unwrap();
 
         // Local config should win (due to override: true)
-        assert_eq!(node_cmd.share, vec!["network"]);
+        assert_eq!(node_cmd.share, strings(&["network"]));
     }
 
     #[test]
@@ -1088,15 +1243,9 @@ mod tests {
         let with_template = merged.merge_with_template(node_cmd);
 
         // Should inherit from user's base model
-        assert_eq!(with_template.share, vec!["user"]);
-        assert_eq!(
-            with_template.ro_bind,
-            vec![("/usr".to_string(), "/usr".to_string())]
-        );
-        assert_eq!(
-            with_template.bind,
-            vec![("~/.npm".to_string(), "~/.npm".to_string())]
-        );
+        assert_eq!(with_template.share, strings(&["user"]));
+        assert_eq!(with_template.ro_bind, mounts(&[("/usr", "/usr")]));
+        assert_eq!(with_template.bind, mounts(&[("~/.npm", "~/.npm")]));
     }
 
     #[test]
@@ -1122,7 +1271,7 @@ mod tests {
         let base_model = merged.get_model("base").unwrap();
 
         // Local model should completely replace user model (due to override: true)
-        assert_eq!(base_model.share, vec!["network"]);
+        assert_eq!(base_model.share, strings(&["network"]));
     }
 
     #[test]
@@ -1148,7 +1297,7 @@ mod tests {
 
         // User version should be kept when local has enabled:false
         assert!(node_cmd.enabled);
-        assert_eq!(node_cmd.share, vec!["user"]);
+        assert_eq!(node_cmd.share, strings(&["user"]));
     }
 
     #[test]
@@ -1225,7 +1374,7 @@ mod tests {
         let node_cmd = merged.get_command("node").unwrap();
 
         // Child completely replaces parent
-        assert_eq!(node_cmd.share, vec!["network"]);
+        assert_eq!(node_cmd.share, strings(&["network"]));
         assert!(node_cmd.bind.is_empty());
     }
 
@@ -1251,8 +1400,28 @@ mod tests {
         let merged = Config::merge(parent_config, child_config);
         let node_cmd = merged.get_command("node").unwrap();
 
-        // Arrays merged and deduplicated (parent first, then unique child items)
-        assert_eq!(node_cmd.share, vec!["user", "pid", "network"]);
+        // Sets are merged by union.
+        assert_eq!(node_cmd.share, strings(&["user", "pid", "network"]));
+    }
+
+    #[test]
+    fn test_deep_merge_child_mount_replaces_parent_destination() {
+        let parent = Config::from_yaml(indoc! {"
+            node:
+              bind:
+                - [/parent, /workspace]
+        "})
+        .unwrap();
+        let child = Config::from_yaml(indoc! {"
+            node:
+              bind:
+                - [/child, /workspace]
+        "})
+        .unwrap();
+
+        let merged = Config::merge(parent, child);
+        let node = merged.get_command("node").unwrap();
+        assert_eq!(node.bind, mounts(&[("/child", "/workspace")]));
     }
 
     #[test]
@@ -1302,10 +1471,7 @@ mod tests {
             node_cmd.setenv.get("PATH"),
             Some(&"/child/path".to_string())
         );
-        assert_eq!(
-            node_cmd.unsetenv,
-            vec!["TOKEN", "SECRET", "SECRET", "API_KEY"]
-        );
+        assert_eq!(node_cmd.unsetenv, strings(&["TOKEN", "SECRET", "API_KEY"]));
     }
 
     #[test]
@@ -1328,7 +1494,7 @@ mod tests {
         let node_cmd = merged.get_command("node").unwrap();
 
         // Empty child array preserves parent array
-        assert_eq!(node_cmd.share, vec!["user", "network"]);
+        assert_eq!(node_cmd.share, strings(&["user", "network"]));
     }
 
     #[test]
@@ -1354,7 +1520,7 @@ mod tests {
 
         // enabled: false takes precedence, parent entry is used
         assert!(node_cmd.enabled);
-        assert_eq!(node_cmd.share, vec!["user"]);
+        assert_eq!(node_cmd.share, strings(&["user"]));
     }
 
     #[test]
@@ -1380,7 +1546,7 @@ mod tests {
 
         // enabled: false takes precedence regardless of override value
         assert!(node_cmd.enabled);
-        assert_eq!(node_cmd.share, vec!["user"]);
+        assert_eq!(node_cmd.share, strings(&["user"]));
     }
 
     #[test]
@@ -1450,26 +1616,20 @@ mod tests {
         let merged = config.merge_with_template(node_cmd);
 
         // Should have shares from both models
-        assert!(merged.share.contains(&"user".to_string()));
-        assert!(merged.share.contains(&"network".to_string()));
+        assert!(merged.share.contains("user"));
+        assert!(merged.share.contains("network"));
 
-        // Should have ro_bind from both models (base first, then network)
-        assert!(
-            merged
-                .ro_bind
-                .contains(&("/usr".to_string(), "/usr".to_string()))
+        // Should have ro_bind from both models.
+        assert_eq!(merged.ro_bind.get("/usr"), Some(&"/usr".to_string()));
+        assert_eq!(
+            merged.ro_bind.get("/etc/resolv.conf"),
+            Some(&"/etc/resolv.conf".to_string())
         );
-        assert!(merged.ro_bind.contains(&(
-            "/etc/resolv.conf".to_string(),
-            "/etc/resolv.conf".to_string()
-        )));
 
         // Should have bind from command itself
-        assert!(
-            merged
-                .bind
-                .contains(&("~/.npm".to_string(), "~/.npm".to_string()))
-        );
+        let npm_path =
+            resolve_path("~/.npm", &std::env::current_dir().unwrap(), "test", "bind").unwrap();
+        assert_eq!(merged.bind.get(&npm_path), Some(&npm_path));
     }
 
     #[test]
@@ -1499,6 +1659,44 @@ mod tests {
             Some(&"override_value".to_string())
         );
         assert_eq!(merged.setenv.get("OTHER"), Some(&"keep_this".to_string()));
+    }
+
+    #[test]
+    fn test_includes_later_model_and_command_override_mount_destination() {
+        let config = Config::from_yaml(indoc! {"
+            base:
+              type: model
+              bind:
+                - [/base, /workspace]
+
+            override:
+              type: model
+              bind:
+                - [/override, /workspace]
+
+            model_only:
+              includes: [base, override]
+
+            command:
+              includes: [base, override]
+              bind:
+                - [/command, /workspace]
+        "})
+        .unwrap();
+
+        let model_only = config.get_command("model_only").unwrap();
+        let merged_model_only = config.merge_with_template(model_only);
+        assert_eq!(
+            merged_model_only.bind.get("/workspace"),
+            Some(&"/override".to_string())
+        );
+
+        let command = config.get_command("command").unwrap();
+        let merged_command = config.merge_with_template(command);
+        assert_eq!(
+            merged_command.bind.get("/workspace"),
+            Some(&"/command".to_string())
+        );
     }
 
     #[test]
@@ -1549,8 +1747,8 @@ mod tests {
         let merged = config.merge_with_template(node_cmd);
 
         // Should apply base and network, skip nonexistent
-        assert!(merged.share.contains(&"user".to_string()));
-        assert!(merged.share.contains(&"network".to_string()));
+        assert!(merged.share.contains("user"));
+        assert!(merged.share.contains("network"));
     }
 
     #[test]
@@ -1567,7 +1765,7 @@ mod tests {
         let merged = config.merge_with_template(node_cmd);
 
         // Should just have command's own settings
-        assert_eq!(merged.share, vec!["user"]);
+        assert_eq!(merged.share, strings(&["user"]));
     }
 
     #[test]
@@ -1584,7 +1782,7 @@ mod tests {
         assert_eq!(node_cmd.includes, Vec::<String>::new());
 
         let merged = config.merge_with_template(node_cmd);
-        assert_eq!(merged.share, vec!["user"]);
+        assert_eq!(merged.share, strings(&["user"]));
     }
 
     #[test]

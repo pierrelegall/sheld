@@ -4,8 +4,20 @@
 use indoc::indoc;
 use sheld::config::EntryType;
 use sheld::config::loader::ConfigLoader;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use tempfile::TempDir;
+
+fn mounts(entries: &[(&str, &str)]) -> HashMap<String, String> {
+    entries
+        .iter()
+        .map(|(src, dst)| (dst.to_string(), src.to_string()))
+        .collect()
+}
+
+fn strings(entries: &[&str]) -> HashSet<String> {
+    entries.iter().map(|entry| entry.to_string()).collect()
+}
 
 #[test]
 fn test_full_config_loading_and_execution() {
@@ -46,12 +58,8 @@ fn test_full_config_loading_and_execution() {
 
     // Verify merging with base
     let merged = config.merge_with_base(node_cmd);
-    assert!(merged.share.contains(&"user".to_string()));
-    assert!(
-        merged
-            .ro_bind
-            .contains(&("/usr".to_string(), "/usr".to_string()))
-    );
+    assert!(merged.share.contains("user"));
+    assert_eq!(merged.ro_bind.get("/usr"), Some(&"/usr".to_string()));
     assert_eq!(
         merged.setenv.get("NODE_ENV"),
         Some(&"production".to_string())
@@ -66,28 +74,27 @@ fn test_full_config_loading_and_execution() {
 fn test_bwrap_builder_integration() {
     use sheld::bwrap::WrappedCommandBuilder;
     use sheld::config::Entry;
-    use std::collections::HashMap;
 
     let mut config = Entry {
         entry_type: EntryType::Command,
         enabled: true,
         override_parent: false,
         includes: vec![],
-        share: vec![],
-        bind: vec![("/tmp".to_string(), "/tmp".to_string())],
-        ro_bind: vec![("/usr".to_string(), "/usr".to_string())],
-        dev_bind: vec![],
-        bind_try: vec![],
-        ro_bind_try: vec![],
-        dev_bind_try: vec![],
-        tmpfs: vec!["/var/tmp".to_string()],
+        share: HashSet::new(),
+        bind: mounts(&[("/tmp", "/tmp")]),
+        ro_bind: mounts(&[("/usr", "/usr")]),
+        dev_bind: HashMap::new(),
+        bind_try: HashMap::new(),
+        ro_bind_try: HashMap::new(),
+        dev_bind_try: HashMap::new(),
+        tmpfs: strings(&["/var/tmp"]),
         chdir: None,
         die_with_parent: false,
         new_session: false,
-        cap: vec![],
+        cap: HashSet::new(),
         setenv_if_unset: HashMap::new(),
         setenv: HashMap::new(),
-        unsetenv: vec![],
+        unsetenv: HashSet::new(),
         alias: None,
         args: vec![],
     };
@@ -95,7 +102,7 @@ fn test_bwrap_builder_integration() {
         .setenv
         .insert("TEST".to_string(), "value".to_string());
 
-    let builder = WrappedCommandBuilder::new(config, None);
+    let builder = WrappedCommandBuilder::new(config);
     let args = builder.build_args();
 
     // No namespaces shared: all must be unshared
@@ -166,7 +173,7 @@ fn test_config_with_all_features() {
 
     // Build and verify bwrap args
     use sheld::bwrap::WrappedCommandBuilder;
-    let builder = WrappedCommandBuilder::new(merged, None);
+    let builder = WrappedCommandBuilder::new(merged);
     let args = builder.build_args();
 
     // User is shared, so no --unshare-user
@@ -204,11 +211,11 @@ fn test_multiple_commands_in_config() {
     // Test each command
     let node = config.get_command("node").unwrap();
     assert!(node.enabled);
-    assert_eq!(node.share, vec!["user", "network"]);
+    assert_eq!(node.share, strings(&["user", "network"]));
 
     let python = config.get_command("python").unwrap();
     assert!(python.enabled);
-    assert_eq!(python.share, vec!["user"]);
+    assert_eq!(python.share, strings(&["user"]));
 
     let ruby = config.get_command("ruby").unwrap();
     assert!(!ruby.enabled);
@@ -235,33 +242,32 @@ fn test_config_error_handling() {
 fn test_command_show_formatting() {
     use sheld::bwrap::WrappedCommandBuilder;
     use sheld::config::Entry;
-    use std::collections::HashMap;
 
     let config = Entry {
         entry_type: EntryType::Command,
         enabled: true,
         override_parent: false,
         includes: vec![],
-        share: vec![],
-        bind: vec![],
-        ro_bind: vec![("/usr".to_string(), "/usr".to_string())],
-        dev_bind: vec![],
-        bind_try: vec![],
-        ro_bind_try: vec![],
-        dev_bind_try: vec![],
-        tmpfs: vec![],
+        share: HashSet::new(),
+        bind: HashMap::new(),
+        ro_bind: mounts(&[("/usr", "/usr")]),
+        dev_bind: HashMap::new(),
+        bind_try: HashMap::new(),
+        ro_bind_try: HashMap::new(),
+        dev_bind_try: HashMap::new(),
+        tmpfs: HashSet::new(),
         chdir: None,
         die_with_parent: false,
         new_session: false,
-        cap: vec![],
+        cap: HashSet::new(),
         setenv_if_unset: HashMap::new(),
         setenv: HashMap::new(),
-        unsetenv: vec![],
+        unsetenv: HashSet::new(),
         alias: None,
         args: vec![],
     };
 
-    let builder = WrappedCommandBuilder::new(config, None);
+    let builder = WrappedCommandBuilder::new(config);
     let cmd = builder.show("ls", &["-la".to_string(), "/tmp".to_string()]);
 
     // Verify command format
@@ -330,20 +336,18 @@ fn test_custom_template_name() {
     // Test node with minimal template
     let node = config.get_command("node").unwrap();
     let merged_node = config.merge_with_template(node);
-    assert_eq!(merged_node.share, vec!["user", "network"]);
+    assert_eq!(merged_node.share, strings(&["user", "network"]));
+    let npm_path = format!("{}/.npm", std::env::var("HOME").unwrap());
     assert_eq!(
         merged_node.bind,
-        vec![("~/.npm".to_string(), "~/.npm".to_string())]
+        mounts(&[(npm_path.as_str(), npm_path.as_str())])
     );
 
     // Test python with strict template
     let python = config.get_command("python").unwrap();
     let merged_python = config.merge_with_template(python);
-    assert_eq!(merged_python.share, vec!["user"]);
-    assert_eq!(
-        merged_python.ro_bind,
-        vec![("/usr".to_string(), "/usr".to_string())]
-    );
+    assert_eq!(merged_python.share, strings(&["user"]));
+    assert_eq!(merged_python.ro_bind, mounts(&[("/usr", "/usr")]));
 }
 
 #[test]
@@ -361,7 +365,7 @@ fn test_unshare_all_by_default_integration() {
     .unwrap();
 
     let isolated_cmd = config.get_command("isolated").unwrap();
-    let builder = WrappedCommandBuilder::new(isolated_cmd, None);
+    let builder = WrappedCommandBuilder::new(isolated_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // All namespaces should be unshared
@@ -391,7 +395,7 @@ fn test_share_specific_namespaces_integration() {
     .unwrap();
 
     let network_cmd = config.get_command("network_enabled").unwrap();
-    let builder = WrappedCommandBuilder::new(network_cmd, None);
+    let builder = WrappedCommandBuilder::new(network_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User and network should NOT be unshared
@@ -424,7 +428,7 @@ fn test_share_multiple_namespaces_integration() {
     .unwrap();
 
     let relaxed_cmd = config.get_command("relaxed").unwrap();
-    let builder = WrappedCommandBuilder::new(relaxed_cmd, None);
+    let builder = WrappedCommandBuilder::new(relaxed_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User, network, and ipc should NOT be unshared
@@ -460,7 +464,7 @@ fn test_share_all_namespaces_integration() {
     .unwrap();
 
     let no_isolation_cmd = config.get_command("no_isolation").unwrap();
-    let builder = WrappedCommandBuilder::new(no_isolation_cmd, None);
+    let builder = WrappedCommandBuilder::new(no_isolation_cmd);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // No namespaces should be unshared
@@ -496,7 +500,7 @@ fn test_template_with_share_inheritance() {
 
     let app_cmd = config.get_command("app").unwrap();
     let merged = config.merge_with_template(app_cmd);
-    let builder = WrappedCommandBuilder::new(merged, None);
+    let builder = WrappedCommandBuilder::new(merged);
     let cmd_line = builder.show("echo", &["test".to_string()]);
 
     // User and network should NOT be unshared (inherited + added)
@@ -552,18 +556,10 @@ fn test_user_config_loaded_when_no_local_config() {
     assert_eq!(git_cmd.includes, vec!["base"]);
 
     let merged = config.merge_with_base(git_cmd);
-    assert!(merged.share.contains(&"user".to_string()));
-    assert!(merged.share.contains(&"network".to_string()));
-    assert!(
-        merged
-            .ro_bind
-            .contains(&("/usr".to_string(), "/usr".to_string()))
-    );
-    assert!(
-        merged
-            .ro_bind
-            .contains(&("/lib".to_string(), "/lib".to_string()))
-    );
+    assert!(merged.share.contains("user"));
+    assert!(merged.share.contains("network"));
+    assert_eq!(merged.ro_bind.get("/usr"), Some(&"/usr".to_string()));
+    assert_eq!(merged.ro_bind.get("/lib"), Some(&"/lib".to_string()));
     assert_eq!(
         merged.setenv.get("GIT_AUTHOR_NAME"),
         Some(&"TestUser".to_string())
@@ -615,7 +611,7 @@ fn test_local_config_takes_precedence_over_user_config() {
         .expect("config should be loaded");
 
     let node_cmd = config.get_command("node").unwrap();
-    assert!(node_cmd.share.contains(&"network".to_string()));
+    assert!(node_cmd.share.contains("network"));
     assert_eq!(
         node_cmd.setenv.get("SOURCE"),
         Some(&"local_config".to_string())
@@ -729,21 +725,21 @@ fn test_relative_bind_resolved_against_config_dir() {
 
     let cmd_config = config.get_command("node").unwrap();
     let merged = config.merge_with_base(cmd_config);
-    let builder = WrappedCommandBuilder::new(merged, Some(config_dir));
+    let builder = WrappedCommandBuilder::new(merged);
     let args = builder.build_args();
 
-    // Sugar syntax "." should resolve to the config dir on both sides
-    let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
-    assert_eq!(args[bind_idx + 1], temp_dir.path().to_str().unwrap());
-    assert_eq!(args[bind_idx + 2], temp_dir.path().to_str().unwrap());
-
-    // Tuple syntax [./src, /workspace/src] should resolve src only
-    let second_bind = args.iter().rposition(|x| x == "--bind").unwrap();
-    assert_eq!(
-        args[second_bind + 1],
-        temp_dir.path().join("src").to_str().unwrap()
+    // HashMap-backed mounts do not define ordering within the bind phase.
+    let config_dir = temp_dir.path().to_str().unwrap();
+    assert!(
+        args.windows(3)
+            .any(|window| window == ["--bind", config_dir, config_dir])
     );
-    assert_eq!(args[second_bind + 2], "/workspace/src");
+
+    let src_dir = temp_dir.path().join("src");
+    assert!(
+        args.windows(3)
+            .any(|window| { window == ["--bind", src_dir.to_str().unwrap(), "/workspace/src"] })
+    );
 
     // chdir "." should resolve to config dir
     let chdir_idx = args.iter().position(|x| x == "--chdir").unwrap();

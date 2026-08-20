@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
 use std::process::Command;
 
 use crate::config::Entry;
@@ -8,25 +8,11 @@ const NAMESPACES: [&str; 6] = ["user", "pid", "network", "ipc", "uts", "cgroup"]
 
 pub struct WrappedCommandBuilder {
     config: Entry,
-    config_dir: Option<PathBuf>,
 }
 
 impl WrappedCommandBuilder {
-    pub fn new(config: Entry, config_dir: Option<PathBuf>) -> Self {
-        Self { config, config_dir }
-    }
-
-    fn resolve_path(&self, raw: &str) -> String {
-        let expanded = shellexpand::full(raw).unwrap_or_else(|_| raw.into());
-        let path = Path::new(expanded.as_ref());
-        if path.is_relative()
-            && let Some(dir) = &self.config_dir
-        {
-            let joined = dir.join(path);
-            let normalized: PathBuf = joined.components().collect();
-            return normalized.to_string_lossy().into_owned();
-        }
-        expanded.into_owned()
+    pub fn new(config: Entry) -> Self {
+        Self { config }
     }
 
     /// Build the bwrap command arguments
@@ -68,58 +54,42 @@ impl WrappedCommandBuilder {
             }
         }
 
-        // Handle custom bind mounts
-        for (src, dst) in &self.config.bind {
-            let src_expanded = self.resolve_path(src);
-            let dst_expanded = self.resolve_path(dst);
+        // Filesystem operations are emitted in fixed phases so read-only mounts can
+        // overlay writable parent directories.
+        for (dst, src) in &self.config.bind {
             args.push("--bind".to_string());
-            args.push(src_expanded);
-            args.push(dst_expanded);
+            args.push(src.clone());
+            args.push(dst.clone());
         }
 
-        // Handle read-only binds
-        for (src, dst) in &self.config.ro_bind {
-            let src_expanded = self.resolve_path(src);
-            let dst_expanded = self.resolve_path(dst);
-            args.push("--ro-bind".to_string());
-            args.push(src_expanded);
-            args.push(dst_expanded);
-        }
-
-        // Handle device binds
-        for (src, dst) in &self.config.dev_bind {
-            let src_expanded = self.resolve_path(src);
-            let dst_expanded = self.resolve_path(dst);
-            args.push("--dev-bind".to_string());
-            args.push(src_expanded);
-            args.push(dst_expanded);
-        }
-
-        // Handle bind-try
-        for (src, dst) in &self.config.bind_try {
-            let src_expanded = self.resolve_path(src);
-            let dst_expanded = self.resolve_path(dst);
+        for (dst, src) in &self.config.bind_try {
             args.push("--bind-try".to_string());
-            args.push(src_expanded);
-            args.push(dst_expanded);
+            args.push(src.clone());
+            args.push(dst.clone());
         }
 
-        // Handle read-only bind-try
-        for (src, dst) in &self.config.ro_bind_try {
-            let src_expanded = self.resolve_path(src);
-            let dst_expanded = self.resolve_path(dst);
-            args.push("--ro-bind-try".to_string());
-            args.push(src_expanded);
-            args.push(dst_expanded);
+        for (dst, src) in &self.config.dev_bind {
+            args.push("--dev-bind".to_string());
+            args.push(src.clone());
+            args.push(dst.clone());
         }
 
-        // Handle device bind-try
-        for (src, dst) in &self.config.dev_bind_try {
-            let src_expanded = self.resolve_path(src);
-            let dst_expanded = self.resolve_path(dst);
+        for (dst, src) in &self.config.dev_bind_try {
             args.push("--dev-bind-try".to_string());
-            args.push(src_expanded);
-            args.push(dst_expanded);
+            args.push(src.clone());
+            args.push(dst.clone());
+        }
+
+        for (dst, src) in &self.config.ro_bind {
+            args.push("--ro-bind".to_string());
+            args.push(src.clone());
+            args.push(dst.clone());
+        }
+
+        for (dst, src) in &self.config.ro_bind_try {
+            args.push("--ro-bind-try".to_string());
+            args.push(src.clone());
+            args.push(dst.clone());
         }
 
         // Handle tmpfs
@@ -130,9 +100,8 @@ impl WrappedCommandBuilder {
 
         // Handle chdir
         if let Some(chdir) = &self.config.chdir {
-            let expanded = self.resolve_path(chdir);
             args.push("--chdir".to_string());
-            args.push(expanded);
+            args.push(chdir.clone());
         }
 
         // Handle cap
@@ -141,8 +110,7 @@ impl WrappedCommandBuilder {
             args.push(cap.clone());
         }
 
-        let unsetenv: std::collections::HashSet<&str> =
-            self.config.unsetenv.iter().map(String::as_str).collect();
+        let unsetenv: HashSet<&str> = self.config.unsetenv.iter().map(String::as_str).collect();
 
         // Defaults do not override inherited or forced values.
         for (key, value) in &self.config.setenv_if_unset {
@@ -170,12 +138,7 @@ impl WrappedCommandBuilder {
         }
 
         // Unset values are emitted last so they override every other source.
-        let mut emitted_unsetenv = std::collections::HashSet::new();
         for key in &self.config.unsetenv {
-            if !emitted_unsetenv.insert(key.as_str()) {
-                continue;
-            }
-
             args.push("--unsetenv".to_string());
             args.push(key.clone());
         }
@@ -216,7 +179,18 @@ mod tests {
     use crate::config::{Config, EntryType};
 
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
+
+    fn mounts(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(src, dst)| (dst.to_string(), src.to_string()))
+            .collect()
+    }
+
+    fn strings(entries: &[&str]) -> HashSet<String> {
+        entries.iter().map(|entry| entry.to_string()).collect()
+    }
 
     fn create_test_config() -> Entry {
         Entry {
@@ -224,21 +198,21 @@ mod tests {
             enabled: true,
             override_parent: false,
             includes: vec![],
-            share: vec![],
-            bind: vec![],
-            ro_bind: vec![],
-            dev_bind: vec![],
-            bind_try: vec![],
-            ro_bind_try: vec![],
-            dev_bind_try: vec![],
-            tmpfs: vec![],
+            share: HashSet::new(),
+            bind: HashMap::new(),
+            ro_bind: HashMap::new(),
+            dev_bind: HashMap::new(),
+            bind_try: HashMap::new(),
+            ro_bind_try: HashMap::new(),
+            dev_bind_try: HashMap::new(),
+            tmpfs: HashSet::new(),
             chdir: None,
             die_with_parent: false,
             new_session: false,
-            cap: vec![],
+            cap: HashSet::new(),
             setenv_if_unset: HashMap::new(),
             setenv: HashMap::new(),
-            unsetenv: vec![],
+            unsetenv: HashSet::new(),
             alias: None,
             args: vec![],
         }
@@ -249,7 +223,7 @@ mod tests {
         let config = create_test_config();
         // Empty config = all namespaces unshared by default
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--unshare-net".to_string()));
@@ -264,9 +238,9 @@ mod tests {
     fn test_build_args_share() {
         let mut config = create_test_config();
         // share now controls namespace sharing, not filesystem paths
-        config.share = vec!["network".to_string(), "user".to_string()];
+        config.share = strings(&["network", "user"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Network and user should NOT be unshared
@@ -283,9 +257,9 @@ mod tests {
     #[test]
     fn test_build_args_bind() {
         let mut config = create_test_config();
-        config.bind = vec![("/src".to_string(), "/dest".to_string())];
+        config.bind = mounts(&[("/src", "/dest")]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
@@ -296,9 +270,9 @@ mod tests {
     #[test]
     fn test_build_args_ro_bind() {
         let mut config = create_test_config();
-        config.ro_bind = vec![("/usr".to_string(), "/usr".to_string())];
+        config.ro_bind = mounts(&[("/usr", "/usr")]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--ro-bind".to_string()));
@@ -308,9 +282,9 @@ mod tests {
     #[test]
     fn test_build_args_dev_bind() {
         let mut config = create_test_config();
-        config.dev_bind = vec![("/dev/null".to_string(), "/dev/null".to_string())];
+        config.dev_bind = mounts(&[("/dev/null", "/dev/null")]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--dev-bind".to_string()));
@@ -320,9 +294,9 @@ mod tests {
     #[test]
     fn test_build_args_tmpfs() {
         let mut config = create_test_config();
-        config.tmpfs = vec!["/tmp".to_string(), "/var/tmp".to_string()];
+        config.tmpfs = strings(&["/tmp", "/var/tmp"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--tmpfs".to_string()));
@@ -340,7 +314,7 @@ mod tests {
             .setenv
             .insert("DEBUG".to_string(), "true".to_string());
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let setenv_count = args.iter().filter(|x| *x == "--setenv").count();
@@ -362,7 +336,7 @@ mod tests {
             "unix:///default.sock".to_string(),
         );
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args_with_environment(|_| false);
 
         assert!(contains_setenv(
@@ -380,7 +354,7 @@ mod tests {
             "unix:///default.sock".to_string(),
         );
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args_with_environment(|key| key == "DOCKER_HOST");
 
         assert!(!contains_setenv(
@@ -399,7 +373,7 @@ mod tests {
             .setenv_if_unset
             .insert(KEY.to_string(), "unix:///default.sock".to_string());
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let previous_value = std::env::var_os(KEY);
         unsafe { std::env::set_var(KEY, "") };
         let args = builder.build_args();
@@ -419,7 +393,7 @@ mod tests {
             .setenv
             .insert("PATH".to_string(), "/controlled/path".to_string());
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args_with_environment(|key| key == "PATH");
 
         assert!(contains_setenv(&args, "PATH", "/controlled/path"));
@@ -434,9 +408,9 @@ mod tests {
         config
             .setenv
             .insert("SECRET_TOKEN".to_string(), "forced-secret".to_string());
-        config.unsetenv = vec!["SECRET_TOKEN".to_string()];
+        config.unsetenv = strings(&["SECRET_TOKEN"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args_with_environment(|key| key == "SECRET_TOKEN");
 
         assert!(!contains_setenv(&args, "SECRET_TOKEN", "default-secret"));
@@ -450,13 +424,9 @@ mod tests {
     #[test]
     fn test_build_args_unsetenv() {
         let mut config = create_test_config();
-        config.unsetenv = vec![
-            "DEBUG".to_string(),
-            "VERBOSE".to_string(),
-            "DEBUG".to_string(),
-        ];
+        config.unsetenv = strings(&["DEBUG", "VERBOSE", "DEBUG"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--unsetenv".to_string()));
@@ -494,7 +464,7 @@ mod tests {
         .unwrap();
         let command = config.get_command("command").unwrap();
         let merged = config.merge_with_template(command);
-        let builder = WrappedCommandBuilder::new(merged, None);
+        let builder = WrappedCommandBuilder::new(merged);
         let args = builder.build_args_with_environment(|key| key == "DEFAULT");
 
         assert!(!contains_setenv(&args, "DEFAULT", "model-default"));
@@ -511,13 +481,13 @@ mod tests {
     #[test]
     fn test_build_args_combined() {
         let mut config = create_test_config();
-        config.share = vec!["user".to_string()]; // Share only user namespace
-        config.ro_bind = vec![("/usr".to_string(), "/usr".to_string())];
+        config.share = strings(&["user"]); // Share only user namespace
+        config.ro_bind = mounts(&[("/usr", "/usr")]);
         config
             .setenv
             .insert("TEST".to_string(), "value".to_string());
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Check all types are present
@@ -528,11 +498,50 @@ mod tests {
     }
 
     #[test]
+    fn test_mounts_are_emitted_in_fixed_phases() {
+        let mut config = create_test_config();
+        config.bind = mounts(&[("/bind", "/bind")]);
+        config.bind_try = mounts(&[("/bind-try", "/bind-try")]);
+        config.dev_bind = mounts(&[("/dev-bind", "/dev-bind")]);
+        config.dev_bind_try = mounts(&[("/dev-bind-try", "/dev-bind-try")]);
+        config.ro_bind = mounts(&[("/ro-bind", "/ro-bind")]);
+        config.ro_bind_try = mounts(&[("/ro-bind-try", "/ro-bind-try")]);
+        config.tmpfs = strings(&["/tmp"]);
+
+        let args = WrappedCommandBuilder::new(config).build_args();
+        let positions = [
+            "--bind",
+            "--bind-try",
+            "--dev-bind",
+            "--dev-bind-try",
+            "--ro-bind",
+            "--ro-bind-try",
+            "--tmpfs",
+        ]
+        .map(|flag| args.iter().position(|arg| arg == flag).unwrap());
+
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn test_read_only_child_mount_follows_writable_parent_mount() {
+        let mut config = create_test_config();
+        config.bind = mounts(&[("/project", "/workspace")]);
+        config.ro_bind = mounts(&[("/shared", "/workspace/shared")]);
+
+        let args = WrappedCommandBuilder::new(config).build_args();
+        let bind = args.iter().position(|arg| arg == "--bind").unwrap();
+        let ro_bind = args.iter().position(|arg| arg == "--ro-bind").unwrap();
+
+        assert!(bind < ro_bind);
+    }
+
+    #[test]
     fn test_show_command() {
         let mut config = create_test_config();
-        config.share = vec!["user".to_string()]; // Share user, unshare rest
+        config.share = strings(&["user"]); // Share user, unshare rest
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let cmd = builder.show("node", &["script.js".to_string()]);
 
         assert!(cmd.starts_with("bwrap"));
@@ -544,7 +553,7 @@ mod tests {
     #[test]
     fn test_show_command_with_multiple_args() {
         let config = create_test_config();
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let cmd = builder.show(
             "git",
             &[
@@ -563,7 +572,7 @@ mod tests {
     #[test]
     fn test_empty_config() {
         let config = create_test_config();
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Empty config should unshare all namespaces by default
@@ -576,23 +585,9 @@ mod tests {
     }
 
     #[test]
-    fn test_bind_with_tilde() {
-        let mut config = create_test_config();
-        config.bind = vec![("~/.config".to_string(), "~/.config".to_string())];
-
-        let builder = WrappedCommandBuilder::new(config, None);
-        let args = builder.build_args();
-
-        // shellexpand should expand ~ to home directory
-        let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
-        // The expanded path should not contain ~
-        assert!(!args[bind_idx + 1].contains('~'));
-    }
-
-    #[test]
     fn test_unshare_all_by_default() {
         let config = create_test_config();
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // All namespaces should be unshared by default
@@ -607,9 +602,9 @@ mod tests {
     #[test]
     fn test_share_specific_namespaces() {
         let mut config = create_test_config();
-        config.share = vec!["user".to_string(), "network".to_string()];
+        config.share = strings(&["user", "network"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // User and network should NOT be unshared (they are shared)
@@ -626,16 +621,9 @@ mod tests {
     #[test]
     fn test_share_all_namespaces() {
         let mut config = create_test_config();
-        config.share = vec![
-            "user".to_string(),
-            "pid".to_string(),
-            "network".to_string(),
-            "ipc".to_string(),
-            "uts".to_string(),
-            "cgroup".to_string(),
-        ];
+        config.share = strings(&["user", "pid", "network", "ipc", "uts", "cgroup"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // No namespaces should be unshared
@@ -648,25 +636,11 @@ mod tests {
     }
 
     #[test]
-    fn test_bind_try() {
-        let mut config = create_test_config();
-        config.bind_try = vec![("~/.cache".to_string(), "~/.cache".to_string())];
-
-        let builder = WrappedCommandBuilder::new(config, None);
-        let args = builder.build_args();
-
-        let bind_try_idx = args.iter().position(|x| x == "--bind-try").unwrap();
-        // Tilde should be expanded
-        assert!(!args[bind_try_idx + 1].contains('~'));
-        assert!(!args[bind_try_idx + 2].contains('~'));
-    }
-
-    #[test]
     fn test_ro_bind_try() {
         let mut config = create_test_config();
-        config.ro_bind_try = vec![("/usr".to_string(), "/usr".to_string())];
+        config.ro_bind_try = mounts(&[("/usr", "/usr")]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--ro-bind-try".to_string()));
@@ -676,9 +650,9 @@ mod tests {
     #[test]
     fn test_dev_bind_try() {
         let mut config = create_test_config();
-        config.dev_bind_try = vec![("/dev/kvm".to_string(), "/dev/kvm".to_string())];
+        config.dev_bind_try = mounts(&[("/dev/kvm", "/dev/kvm")]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--dev-bind-try".to_string()));
@@ -690,7 +664,7 @@ mod tests {
         let mut config = create_test_config();
         config.chdir = Some("/workspace".to_string());
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let chdir_idx = args.iter().position(|x| x == "--chdir").unwrap();
@@ -698,24 +672,11 @@ mod tests {
     }
 
     #[test]
-    fn test_chdir_with_tilde() {
-        let mut config = create_test_config();
-        config.chdir = Some("~/projects".to_string());
-
-        let builder = WrappedCommandBuilder::new(config, None);
-        let args = builder.build_args();
-
-        let chdir_idx = args.iter().position(|x| x == "--chdir").unwrap();
-        // Tilde should be expanded
-        assert!(!args[chdir_idx + 1].contains('~'));
-    }
-
-    #[test]
     fn test_chdir_none() {
         let config = create_test_config();
         // chdir is None by default
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Should not contain --chdir
@@ -727,7 +688,7 @@ mod tests {
         let mut config = create_test_config();
         config.die_with_parent = true;
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--die-with-parent".to_string()));
@@ -738,7 +699,7 @@ mod tests {
         let config = create_test_config();
         // die_with_parent is false by default
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Should not contain --die-with-parent
@@ -750,7 +711,7 @@ mod tests {
         let mut config = create_test_config();
         config.new_session = true;
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         assert!(args.contains(&"--new-session".to_string()));
@@ -759,9 +720,9 @@ mod tests {
     #[test]
     fn test_capabilities_single() {
         let mut config = create_test_config();
-        config.cap = vec!["CAP_SYS_ADMIN".to_string()];
+        config.cap = strings(&["CAP_SYS_ADMIN"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let cap_add_idx = args.iter().position(|x| x == "--cap-add").unwrap();
@@ -771,13 +732,9 @@ mod tests {
     #[test]
     fn test_capabilities_multiple() {
         let mut config = create_test_config();
-        config.cap = vec![
-            "CAP_SYS_ADMIN".to_string(),
-            "CAP_NET_ADMIN".to_string(),
-            "CAP_SYS_TIME".to_string(),
-        ];
+        config.cap = strings(&["CAP_SYS_ADMIN", "CAP_NET_ADMIN", "CAP_SYS_TIME"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         let cap_add_count = args.iter().filter(|x| *x == "--cap-add").count();
@@ -792,7 +749,7 @@ mod tests {
         let config = create_test_config();
         // capabilities is empty by default
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Should not contain --cap-add
@@ -802,14 +759,14 @@ mod tests {
     #[test]
     fn test_all_new_options_combined() {
         let mut config = create_test_config();
-        config.bind_try = vec![("/tmp".to_string(), "/tmp".to_string())];
-        config.ro_bind_try = vec![("/usr".to_string(), "/usr".to_string())];
+        config.bind_try = mounts(&[("/tmp", "/tmp")]);
+        config.ro_bind_try = mounts(&[("/usr", "/usr")]);
         config.chdir = Some("/workspace".to_string());
         config.die_with_parent = true;
         config.new_session = true;
-        config.cap = vec!["CAP_SYS_ADMIN".to_string()];
+        config.cap = strings(&["CAP_SYS_ADMIN"]);
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let args = builder.build_args();
 
         // Check all new options are present
@@ -826,7 +783,7 @@ mod tests {
         let mut config = create_test_config();
         config.args = vec!["--no-sandbox".to_string(), "--disable-gpu".to_string()];
 
-        let builder = WrappedCommandBuilder::new(config, None);
+        let builder = WrappedCommandBuilder::new(config);
         let cmd = builder.show("chromium", &["https://example.com".to_string()]);
 
         // Verify ordering: command, then config args, then user args
@@ -842,71 +799,5 @@ mod tests {
         assert!(cmd_idx < no_sandbox_idx);
         assert!(no_sandbox_idx < disable_gpu_idx);
         assert!(disable_gpu_idx < url_idx);
-    }
-
-    #[test]
-    fn test_relative_bind_src_resolved_against_config_dir() {
-        let mut config = create_test_config();
-        config.bind = vec![("./src".to_string(), "/workspace/src".to_string())];
-
-        let config_dir = Some(PathBuf::from("/home/user/project"));
-        let builder = WrappedCommandBuilder::new(config, config_dir);
-        let args = builder.build_args();
-
-        let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
-        assert_eq!(args[bind_idx + 1], "/home/user/project/src");
-        assert_eq!(args[bind_idx + 2], "/workspace/src");
-    }
-
-    #[test]
-    fn test_absolute_bind_src_unchanged() {
-        let mut config = create_test_config();
-        config.bind = vec![("/usr".to_string(), "/usr".to_string())];
-
-        let config_dir = Some(PathBuf::from("/home/user/project"));
-        let builder = WrappedCommandBuilder::new(config, config_dir);
-        let args = builder.build_args();
-
-        let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
-        assert_eq!(args[bind_idx + 1], "/usr");
-    }
-
-    #[test]
-    fn test_relative_bind_without_config_dir_uses_cwd() {
-        let mut config = create_test_config();
-        config.bind = vec![("./src".to_string(), "/workspace/src".to_string())];
-
-        let builder = WrappedCommandBuilder::new(config, None);
-        let args = builder.build_args();
-
-        let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
-        assert!(args[bind_idx + 1].ends_with("/src"));
-    }
-
-    #[test]
-    fn test_relative_chdir_resolved_against_config_dir() {
-        let mut config = create_test_config();
-        config.chdir = Some(".".to_string());
-
-        let config_dir = Some(PathBuf::from("/home/user/project"));
-        let builder = WrappedCommandBuilder::new(config, config_dir);
-        let args = builder.build_args();
-
-        let chdir_idx = args.iter().position(|x| x == "--chdir").unwrap();
-        assert_eq!(args[chdir_idx + 1], "/home/user/project");
-    }
-
-    #[test]
-    fn test_sugar_bind_resolves_both_src_and_dst() {
-        let mut config = create_test_config();
-        config.bind = vec![(".".to_string(), ".".to_string())];
-
-        let config_dir = Some(PathBuf::from("/home/user/project"));
-        let builder = WrappedCommandBuilder::new(config, config_dir);
-        let args = builder.build_args();
-
-        let bind_idx = args.iter().position(|x| x == "--bind").unwrap();
-        assert_eq!(args[bind_idx + 1], "/home/user/project");
-        assert_eq!(args[bind_idx + 2], "/home/user/project");
     }
 }

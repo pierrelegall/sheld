@@ -56,8 +56,7 @@ fn get_command_basename(command: &str) -> &str {
 }
 
 fn wrap_command(command: &str, args: &[String]) -> Result<()> {
-    let (config, config_dir) = ConfigLoader::load_with_dir()?;
-    let config = config.context("No configuration found")?;
+    let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let command_basename = get_command_basename(command);
 
@@ -78,7 +77,7 @@ fn wrap_command(command: &str, args: &[String]) -> Result<()> {
         .alias
         .clone()
         .unwrap_or_else(|| command_basename.to_string());
-    let builder = WrappedCommandBuilder::new(merged_config, config_dir);
+    let builder = WrappedCommandBuilder::new(merged_config);
 
     let exit_code = builder.exec(&effective_command, args)?;
 
@@ -105,14 +104,20 @@ fn list_commands(simple: bool) -> Result<()> {
             if cmd_config.enabled {
                 println!("\n{}:", name);
                 if !cmd_config.share.is_empty() {
-                    println!("  share: {}", cmd_config.share.join(", "));
+                    let mut shares: Vec<_> = cmd_config.share.iter().collect();
+                    shares.sort();
+                    println!(
+                        "  share: {}",
+                        shares.into_iter().cloned().collect::<Vec<_>>().join(", ")
+                    );
                 }
                 if !cmd_config.bind.is_empty() {
-                    let bind_str: Vec<String> = cmd_config
+                    let mut bind_str: Vec<String> = cmd_config
                         .bind
                         .iter()
-                        .map(|(src, dst)| format!("{}:{}", src, dst))
+                        .map(|(dst, src)| format!("{}:{}", src, dst))
                         .collect();
+                    bind_str.sort();
                     println!("  bind: {}", bind_str.join(", "));
                 }
             }
@@ -123,8 +128,7 @@ fn list_commands(simple: bool) -> Result<()> {
 }
 
 fn show_command(command: &str, args: &[String]) -> Result<()> {
-    let (config, config_dir) = ConfigLoader::load_with_dir()?;
-    let config = config.context("No configuration found")?;
+    let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let command_basename = get_command_basename(command);
 
@@ -138,7 +142,7 @@ fn show_command(command: &str, args: &[String]) -> Result<()> {
         .alias
         .clone()
         .unwrap_or_else(|| command_basename.to_string());
-    let builder = WrappedCommandBuilder::new(merged_config, config_dir);
+    let builder = WrappedCommandBuilder::new(merged_config);
 
     let cmd_line = builder.show(&effective_command, args);
     println!("{}", cmd_line);

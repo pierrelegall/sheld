@@ -194,9 +194,34 @@ When both files exist, they are merged with local entries taking precedence:
 - Local `enabled: false`: use user version instead (skip local override)
 - Local commands can include models (defined in user config or project config)
 - Deep merge behavior:
-  - Arrays: Parent items first, then unique child items (deduplicated)
+  - Set-like fields (`share`, `tmpfs`, `cap`, and `unsetenv`): parent and child values are combined without duplicates
+  - Mount fields: later configuration replaces an earlier source for the same destination
   - Environment maps: Parent + child, child wins on key conflicts
   - Scalar fields: child value wins
+
+### Mount order
+
+Sheld emits filesystem operations in this fixed order:
+
+```text
+bind -> bind-try -> dev-bind -> dev-bind-try -> ro-bind -> ro-bind-try -> tmpfs
+```
+
+This allows a writable directory to contain a read-only mounted subdirectory.
+
+```yaml
+bind:
+  - [/project, /workspace]
+ro_bind:
+  - [/shared, /workspace/shared]
+```
+
+Mount entries use their destination as their identity.
+A scalar path maps to itself, and `[source, destination]` maps the source to that destination.
+When the same destination appears more than once in one YAML list, the later entry replaces the earlier entry.
+Ordering among entries in one mount field is unspecified.
+Mount sources, destinations, `tmpfs`, and `chdir` values expand `~` and `$VAR` when Sheld loads the configuration.
+Relative paths are resolved against the configuration file that declares them.
 
 ### Environment variables
 

@@ -73,6 +73,42 @@ fn test_load_with_valid_config() {
 }
 
 #[test]
+fn test_load_resolves_user_and_local_paths_against_their_own_files() {
+    let fake_home = TempDir::new().unwrap();
+    let user_config_dir = fake_home.path().join(".config").join("sheld");
+    fs::create_dir_all(&user_config_dir).unwrap();
+    fs::write(
+        user_config_dir.join(ConfigLoader::user_config_name()),
+        "node:\n  bind:\n    - ./user-src\n",
+    )
+    .unwrap();
+
+    let local_dir = TempDir::new().unwrap();
+    fs::write(
+        local_dir.path().join(ConfigLoader::local_config_name()),
+        "node:\n  bind:\n    - ./local-src\n",
+    )
+    .unwrap();
+
+    let config = ConfigLoader::load_from(local_dir.path(), fake_home.path())
+        .unwrap()
+        .unwrap();
+    let node = config.get_command("node").unwrap();
+    let user_path = user_config_dir
+        .join("user-src")
+        .to_string_lossy()
+        .into_owned();
+    let local_path = local_dir
+        .path()
+        .join("local-src")
+        .to_string_lossy()
+        .into_owned();
+
+    assert_eq!(node.bind.get(&user_path), Some(&user_path));
+    assert_eq!(node.bind.get(&local_path), Some(&local_path));
+}
+
+#[test]
 fn test_load_without_config() {
     let temp_dir = TempDir::new().unwrap();
 
