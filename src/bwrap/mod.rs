@@ -31,6 +31,13 @@ impl WrappedCommandBuilder {
 
     /// Build the bwrap command arguments
     pub fn build_args(&self) -> Vec<String> {
+        self.build_args_with_environment(|key| std::env::var_os(key).is_some())
+    }
+
+    fn build_args_with_environment(
+        &self,
+        inherited_environment_contains: impl Fn(&str) -> bool,
+    ) -> Vec<String> {
         let mut args = Vec::new();
 
         // Add boolean flags first
@@ -134,15 +141,41 @@ impl WrappedCommandBuilder {
             args.push(cap.clone());
         }
 
-        // Handle environment variables
-        for (key, value) in &self.config.env {
+        let unsetenv: std::collections::HashSet<&str> =
+            self.config.unsetenv.iter().map(String::as_str).collect();
+
+        // Defaults do not override inherited or forced values.
+        for (key, value) in &self.config.setenv_if_unset {
+            if unsetenv.contains(key.as_str())
+                || self.config.setenv.contains_key(key)
+                || inherited_environment_contains(key)
+            {
+                continue;
+            }
+
             args.push("--setenv".to_string());
             args.push(key.clone());
             args.push(value.clone());
         }
 
-        // Handle unset environment variables
-        for key in &self.config.unset_env {
+        // Forced values override inherited and default values.
+        for (key, value) in &self.config.setenv {
+            if unsetenv.contains(key.as_str()) {
+                continue;
+            }
+
+            args.push("--setenv".to_string());
+            args.push(key.clone());
+            args.push(value.clone());
+        }
+
+        // Unset values are emitted last so they override every other source.
+        let mut emitted_unsetenv = std::collections::HashSet::new();
+        for key in &self.config.unsetenv {
+            if !emitted_unsetenv.insert(key.as_str()) {
+                continue;
+            }
+
             args.push("--unsetenv".to_string());
             args.push(key.clone());
         }
@@ -180,7 +213,7 @@ impl WrappedCommandBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::EntryType;
+    use crate::config::{Config, EntryType};
 
     use super::*;
     use std::collections::HashMap;
@@ -203,8 +236,9 @@ mod tests {
             die_with_parent: false,
             new_session: false,
             cap: vec![],
-            env: HashMap::new(),
-            unset_env: vec![],
+            setenv_if_unset: HashMap::new(),
+            setenv: HashMap::new(),
+            unsetenv: vec![],
             alias: None,
             args: vec![],
         }
@@ -297,12 +331,14 @@ mod tests {
     }
 
     #[test]
-    fn test_build_args_env() {
+    fn test_build_args_setenv() {
         let mut config = create_test_config();
         config
-            .env
+            .setenv
             .insert("NODE_ENV".to_string(), "production".to_string());
-        config.env.insert("DEBUG".to_string(), "true".to_string());
+        config
+            .setenv
+            .insert("DEBUG".to_string(), "true".to_string());
 
         let builder = WrappedCommandBuilder::new(config, None);
         let args = builder.build_args();
@@ -313,10 +349,112 @@ mod tests {
         assert!(args.contains(&"production".to_string()));
     }
 
+    fn contains_setenv(args: &[String], key: &str, value: &str) -> bool {
+        args.windows(3)
+            .any(|window| window == ["--setenv", key, value])
+    }
+
     #[test]
-    fn test_build_args_unset_env() {
+    fn test_setenv_if_unset_is_emitted_when_not_inherited() {
         let mut config = create_test_config();
-        config.unset_env = vec!["DEBUG".to_string(), "VERBOSE".to_string()];
+        config.setenv_if_unset.insert(
+            "DOCKER_HOST".to_string(),
+            "unix:///default.sock".to_string(),
+        );
+
+        let builder = WrappedCommandBuilder::new(config, None);
+        let args = builder.build_args_with_environment(|_| false);
+
+        assert!(contains_setenv(
+            &args,
+            "DOCKER_HOST",
+            "unix:///default.sock"
+        ));
+    }
+
+    #[test]
+    fn test_setenv_if_unset_does_not_override_inherited_value() {
+        let mut config = create_test_config();
+        config.setenv_if_unset.insert(
+            "DOCKER_HOST".to_string(),
+            "unix:///default.sock".to_string(),
+        );
+
+        let builder = WrappedCommandBuilder::new(config, None);
+        let args = builder.build_args_with_environment(|key| key == "DOCKER_HOST");
+
+        assert!(!contains_setenv(
+            &args,
+            "DOCKER_HOST",
+            "unix:///default.sock"
+        ));
+    }
+
+    #[test]
+    fn test_setenv_if_unset_treats_empty_inherited_value_as_present() {
+        const KEY: &str = "SHELD_TEST_EMPTY_INHERITED_VALUE";
+
+        let mut config = create_test_config();
+        config
+            .setenv_if_unset
+            .insert(KEY.to_string(), "unix:///default.sock".to_string());
+
+        let builder = WrappedCommandBuilder::new(config, None);
+        let previous_value = std::env::var_os(KEY);
+        unsafe { std::env::set_var(KEY, "") };
+        let args = builder.build_args();
+
+        match previous_value {
+            Some(value) => unsafe { std::env::set_var(KEY, value) },
+            None => unsafe { std::env::remove_var(KEY) },
+        }
+
+        assert!(!contains_setenv(&args, KEY, "unix:///default.sock"));
+    }
+
+    #[test]
+    fn test_setenv_overrides_inherited_value() {
+        let mut config = create_test_config();
+        config
+            .setenv
+            .insert("PATH".to_string(), "/controlled/path".to_string());
+
+        let builder = WrappedCommandBuilder::new(config, None);
+        let args = builder.build_args_with_environment(|key| key == "PATH");
+
+        assert!(contains_setenv(&args, "PATH", "/controlled/path"));
+    }
+
+    #[test]
+    fn test_unsetenv_overrides_default_and_forced_values() {
+        let mut config = create_test_config();
+        config
+            .setenv_if_unset
+            .insert("SECRET_TOKEN".to_string(), "default-secret".to_string());
+        config
+            .setenv
+            .insert("SECRET_TOKEN".to_string(), "forced-secret".to_string());
+        config.unsetenv = vec!["SECRET_TOKEN".to_string()];
+
+        let builder = WrappedCommandBuilder::new(config, None);
+        let args = builder.build_args_with_environment(|key| key == "SECRET_TOKEN");
+
+        assert!(!contains_setenv(&args, "SECRET_TOKEN", "default-secret"));
+        assert!(!contains_setenv(&args, "SECRET_TOKEN", "forced-secret"));
+        assert!(
+            args.windows(2)
+                .any(|window| window == ["--unsetenv", "SECRET_TOKEN"])
+        );
+    }
+
+    #[test]
+    fn test_build_args_unsetenv() {
+        let mut config = create_test_config();
+        config.unsetenv = vec![
+            "DEBUG".to_string(),
+            "VERBOSE".to_string(),
+            "DEBUG".to_string(),
+        ];
 
         let builder = WrappedCommandBuilder::new(config, None);
         let args = builder.build_args();
@@ -324,6 +462,50 @@ mod tests {
         assert!(args.contains(&"--unsetenv".to_string()));
         assert!(args.contains(&"DEBUG".to_string()));
         assert!(args.contains(&"VERBOSE".to_string()));
+        assert_eq!(
+            args.windows(2)
+                .filter(|window| *window == ["--unsetenv", "DEBUG"])
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_build_args_with_merged_model_environment() {
+        let config = Config::from_yaml(
+            r#"
+                base:
+                  type: model
+                  setenv_if_unset:
+                    DEFAULT: model-default
+                  setenv:
+                    FORCE: model-value
+                  unsetenv:
+                    - SECRET
+
+                command:
+                  includes: base
+                  setenv:
+                    FORCE: command-value
+                  unsetenv:
+                    - SECRET
+            "#,
+        )
+        .unwrap();
+        let command = config.get_command("command").unwrap();
+        let merged = config.merge_with_template(command);
+        let builder = WrappedCommandBuilder::new(merged, None);
+        let args = builder.build_args_with_environment(|key| key == "DEFAULT");
+
+        assert!(!contains_setenv(&args, "DEFAULT", "model-default"));
+        assert!(contains_setenv(&args, "FORCE", "command-value"));
+        assert!(!contains_setenv(&args, "FORCE", "model-value"));
+        assert_eq!(
+            args.windows(2)
+                .filter(|window| *window == ["--unsetenv", "SECRET"])
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -331,7 +513,9 @@ mod tests {
         let mut config = create_test_config();
         config.share = vec!["user".to_string()]; // Share only user namespace
         config.ro_bind = vec![("/usr".to_string(), "/usr".to_string())];
-        config.env.insert("TEST".to_string(), "value".to_string());
+        config
+            .setenv
+            .insert("TEST".to_string(), "value".to_string());
 
         let builder = WrappedCommandBuilder::new(config, None);
         let args = builder.build_args();

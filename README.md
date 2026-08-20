@@ -171,9 +171,11 @@ node:
   cap:                      # Optional: add Linux capabilities (bwrap drops all by default)
     - CAP_SYS_ADMIN
     - CAP_NET_ADMIN
-  env:                      # Set environment variables
+  setenv_if_unset:          # Default environment variables that inherited values can override
     NODE_ENV: production
-  unset_env:                # Unset environment variables
+  setenv:                   # Enforced environment variables inside the sandbox
+    PATH: /controlled/path
+  unsetenv:                 # Removed environment variables
     - DEBUG
 ```
 
@@ -193,8 +195,28 @@ When both files exist, they are merged with local entries taking precedence:
 - Local commands can include models (defined in user config or project config)
 - Deep merge behavior:
   - Arrays: Parent items first, then unique child items (deduplicated)
-  - env HashMap: Parent + child, child wins on key conflicts
+  - Environment maps: Parent + child, child wins on key conflicts
   - Scalar fields: child value wins
+
+### Environment variables
+
+Environment configuration distinguishes defaults from forced values:
+
+- `setenv_if_unset`: sets a value only when it is absent from Sheld's inherited environment
+- `setenv`: always sets the sandbox value
+- `unsetenv`: removes the variable from the sandbox
+
+When the same variable appears in more than one source, precedence is:
+
+```text
+unsetenv > setenv > inherited environment > setenv_if_unset
+```
+
+This lets command-scoped assignments override defaults:
+
+```sh
+DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act
+```
 
 ## Default isolation
 

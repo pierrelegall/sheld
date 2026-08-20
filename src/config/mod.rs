@@ -115,20 +115,16 @@ pub struct Config {
     pub entries: HashMap<String, Entry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EntryType {
+    #[default]
     Command,
     Model,
 }
 
-impl Default for EntryType {
-    fn default() -> Self {
-        EntryType::Command
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Entry {
     #[serde(default, rename = "type")]
     pub entry_type: EntryType,
@@ -163,9 +159,11 @@ pub struct Entry {
     #[serde(default)]
     pub cap: Vec<String>,
     #[serde(default)]
-    pub env: HashMap<String, String>,
+    pub setenv_if_unset: HashMap<String, String>,
     #[serde(default)]
-    pub unset_env: Vec<String>,
+    pub setenv: HashMap<String, String>,
+    #[serde(default)]
+    pub unsetenv: Vec<String>,
     #[serde(default)]
     pub alias: Option<String>,
     #[serde(default)]
@@ -207,7 +205,7 @@ fn deduplicate_vec_tuples(vec: Vec<(String, String)>) -> Vec<(String, String)> {
 impl Entry {
     /// Deep merge parent and child entries
     /// - Arrays: parent items first, then unique child items (deduplicated)
-    /// - env HashMap: parent + child, child wins on conflicts
+    /// - Environment HashMaps: parent + child, child wins on conflicts
     /// - Scalar fields: child value wins
     /// - Empty child arrays preserve parent arrays
     pub fn deep_merge(parent: Entry, child: Entry) -> Entry {
@@ -252,17 +250,14 @@ impl Entry {
             deduplicate_vec(merged_tmpfs)
         };
 
-        let mut merged_unset_env = parent.unset_env.clone();
-        merged_unset_env.extend(child.unset_env.clone());
-        let merged_unset_env = if child.unset_env.is_empty() {
-            parent.unset_env
-        } else {
-            deduplicate_vec(merged_unset_env)
-        };
+        let mut merged_unsetenv = parent.unsetenv.clone();
+        merged_unsetenv.extend(child.unsetenv.clone());
 
-        // Merge env: parent + child, child wins on conflicts
-        let mut merged_env = parent.env.clone();
-        merged_env.extend(child.env);
+        let mut merged_setenv_if_unset = parent.setenv_if_unset.clone();
+        merged_setenv_if_unset.extend(child.setenv_if_unset);
+
+        let mut merged_setenv = parent.setenv.clone();
+        merged_setenv.extend(child.setenv);
 
         // Merge bind_try variants
         let mut merged_bind_try = parent.bind_try.clone();
@@ -317,8 +312,9 @@ impl Entry {
             die_with_parent: child.die_with_parent,
             new_session: child.new_session,
             cap: merged_cap,
-            env: merged_env,
-            unset_env: merged_unset_env,
+            setenv_if_unset: merged_setenv_if_unset,
+            setenv: merged_setenv,
+            unsetenv: merged_unsetenv,
             alias: child.alias,
             args: child.args,
         }
@@ -346,7 +342,7 @@ impl Config {
     pub fn get_entries(&self) -> HashMap<String, Entry> {
         self.entries
             .iter()
-            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect()
     }
 
@@ -358,13 +354,13 @@ impl Config {
         self.entries
             .iter()
             .filter(|(_, entry)| predicate(entry))
-            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect()
     }
 
     /// Get a specific command configuration
     pub fn get_entry(&self, command: &str) -> Option<Entry> {
-        self.entries.get(command).map(|entry| entry.clone().into())
+        self.entries.get(command).cloned()
     }
 
     /// Get an entry with constrains
@@ -375,7 +371,7 @@ impl Config {
         self.entries
             .get(name)
             .filter(|entry| predicate(entry))
-            .map(|entry| entry.clone().into())
+            .cloned()
     }
 
     /// Get all command entries (filtering by type: command)
@@ -383,7 +379,7 @@ impl Config {
         self.entries
             .iter()
             .filter(|(_, entry)| entry.entry_type == EntryType::Command)
-            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect()
     }
 
@@ -392,7 +388,7 @@ impl Config {
         self.entries
             .get(name)
             .filter(|entry| entry.entry_type == EntryType::Command)
-            .map(|entry| entry.clone().into())
+            .cloned()
     }
 
     /// Get all model entries (filtering by type: command)
@@ -400,7 +396,7 @@ impl Config {
         self.entries
             .iter()
             .filter(|(_, entry)| entry.entry_type == EntryType::Model)
-            .map(|(name, entry)| (name.clone(), entry.clone().into()))
+            .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect()
     }
 
@@ -409,7 +405,7 @@ impl Config {
         self.entries
             .get(name)
             .filter(|entry| entry.entry_type == EntryType::Model)
-            .map(|entry| entry.clone().into())
+            .cloned()
     }
 
     /// Merge command config with its models (if includes is set)
@@ -424,8 +420,9 @@ impl Config {
         let cmd_ro_bind_try = cmd_config.ro_bind_try.clone();
         let cmd_dev_bind_try = cmd_config.dev_bind_try.clone();
         let cmd_tmpfs = cmd_config.tmpfs.clone();
-        let cmd_unset_env = cmd_config.unset_env.clone();
-        let cmd_env = cmd_config.env.clone();
+        let cmd_setenv_if_unset = cmd_config.setenv_if_unset.clone();
+        let cmd_setenv = cmd_config.setenv.clone();
+        let cmd_unsetenv = cmd_config.unsetenv.clone();
         let cmd_cap = cmd_config.cap.clone();
 
         let mut result = Entry {
@@ -445,8 +442,9 @@ impl Config {
             die_with_parent: cmd_config.die_with_parent,
             new_session: cmd_config.new_session,
             cap: vec![],
-            env: HashMap::new(),
-            unset_env: vec![],
+            setenv_if_unset: HashMap::new(),
+            setenv: HashMap::new(),
+            unsetenv: vec![],
             alias: cmd_config.alias.clone(),
             args: cmd_config.args.clone(),
         };
@@ -463,11 +461,14 @@ impl Config {
                 result.ro_bind_try.extend(template.ro_bind_try.clone());
                 result.dev_bind_try.extend(template.dev_bind_try.clone());
                 result.tmpfs.extend(template.tmpfs.clone());
-                result.unset_env.extend(template.unset_env.clone());
+                result.unsetenv.extend(template.unsetenv.clone());
                 result.cap.extend(template.cap.clone());
 
-                // Merge env (later templates override earlier ones)
-                result.env.extend(template.env.clone());
+                // Later templates override earlier values in each environment map.
+                result
+                    .setenv_if_unset
+                    .extend(template.setenv_if_unset.clone());
+                result.setenv.extend(template.setenv.clone());
             }
             // If model doesn't exist, skip it (no error)
         }
@@ -481,10 +482,10 @@ impl Config {
         result.ro_bind_try.extend(cmd_ro_bind_try);
         result.dev_bind_try.extend(cmd_dev_bind_try);
         result.tmpfs.extend(cmd_tmpfs);
-        result.unset_env.extend(cmd_unset_env);
+        result.unsetenv.extend(cmd_unsetenv);
         result.cap.extend(cmd_cap);
-        result.env.extend(cmd_env);
-
+        result.setenv_if_unset.extend(cmd_setenv_if_unset);
+        result.setenv.extend(cmd_setenv);
         result
     }
 
@@ -699,24 +700,39 @@ mod tests {
     }
 
     #[test]
-    fn test_env_variables() {
+    fn test_environment_variables() {
         let config = Config::from_yaml(indoc! {"
             node:
-              env:
+              setenv_if_unset:
                 NODE_ENV: production
+              setenv:
                 PATH: /custom/path
-              unset_env:
+              unsetenv:
                 - DEBUG
         "})
         .unwrap();
         let node_cmd = config.get_command("node").unwrap();
 
-        assert_eq!(node_cmd.env.len(), 2);
+        assert_eq!(node_cmd.setenv_if_unset.len(), 1);
         assert_eq!(
-            node_cmd.env.get("NODE_ENV"),
+            node_cmd.setenv_if_unset.get("NODE_ENV"),
             Some(&"production".to_string())
         );
-        assert_eq!(node_cmd.unset_env, vec!["DEBUG"]);
+        assert_eq!(
+            node_cmd.setenv.get("PATH"),
+            Some(&"/custom/path".to_string())
+        );
+        assert_eq!(node_cmd.unsetenv, vec!["DEBUG"]);
+    }
+
+    #[test]
+    fn test_environment_legacy_and_unknown_fields_are_rejected() {
+        for field in ["env", "unset_env", "setenv_if_unsettt"] {
+            let yaml = format!("node:\n  {field}: value\n");
+            let error = Config::from_yaml(&yaml).unwrap_err();
+
+            assert!(format!("{error:#}").contains(field));
+        }
     }
 
     #[test]
@@ -1182,7 +1198,7 @@ mod tests {
         .unwrap();
 
         let node_cmd = config.get_command("node").unwrap();
-        assert_eq!(node_cmd.override_parent, false);
+        assert!(!node_cmd.override_parent);
     }
 
     #[test]
@@ -1240,30 +1256,56 @@ mod tests {
     }
 
     #[test]
-    fn test_override_false_merges_env() {
+    fn test_override_false_merges_environment_maps_and_unsetenv() {
         let parent_config = Config::from_yaml(indoc! {"
             node:
-              env:
+              setenv_if_unset:
                 FROM: parent
                 KEEP: this
+              setenv:
+                PATH: /parent/path
+              unsetenv:
+                - TOKEN
+                - SECRET
         "})
         .unwrap();
 
         let child_config = Config::from_yaml(indoc! {"
             node:
-              env:
+              setenv_if_unset:
                 FROM: child
                 NEW: value
+              setenv:
+                PATH: /child/path
+              unsetenv:
+                - SECRET
+                - API_KEY
         "})
         .unwrap();
 
         let merged = Config::merge(parent_config, child_config);
         let node_cmd = merged.get_command("node").unwrap();
 
-        // Env merged, child wins on conflicts
-        assert_eq!(node_cmd.env.get("FROM"), Some(&"child".to_string()));
-        assert_eq!(node_cmd.env.get("KEEP"), Some(&"this".to_string()));
-        assert_eq!(node_cmd.env.get("NEW"), Some(&"value".to_string()));
+        assert_eq!(
+            node_cmd.setenv_if_unset.get("FROM"),
+            Some(&"child".to_string())
+        );
+        assert_eq!(
+            node_cmd.setenv_if_unset.get("KEEP"),
+            Some(&"this".to_string())
+        );
+        assert_eq!(
+            node_cmd.setenv_if_unset.get("NEW"),
+            Some(&"value".to_string())
+        );
+        assert_eq!(
+            node_cmd.setenv.get("PATH"),
+            Some(&"/child/path".to_string())
+        );
+        assert_eq!(
+            node_cmd.unsetenv,
+            vec!["TOKEN", "SECRET", "SECRET", "API_KEY"]
+        );
     }
 
     #[test]
@@ -1431,17 +1473,17 @@ mod tests {
     }
 
     #[test]
-    fn test_includes_later_model_overrides_earlier_env() {
+    fn test_includes_later_model_overrides_earlier_setenv() {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
-              env:
+              setenv:
                 KEY: base_value
                 OTHER: keep_this
 
             override:
               type: model
-              env:
+              setenv:
                 KEY: override_value
 
             node:
@@ -1452,10 +1494,11 @@ mod tests {
         let node_cmd = config.get_command("node").unwrap();
         let merged = config.merge_with_template(node_cmd);
 
-        // Later model's env should override earlier model's env
-        assert_eq!(merged.env.get("KEY"), Some(&"override_value".to_string()));
-        // Env from first model that wasn't overridden should remain
-        assert_eq!(merged.env.get("OTHER"), Some(&"keep_this".to_string()));
+        assert_eq!(
+            merged.setenv.get("KEY"),
+            Some(&"override_value".to_string())
+        );
+        assert_eq!(merged.setenv.get("OTHER"), Some(&"keep_this".to_string()));
     }
 
     #[test]
@@ -1463,17 +1506,17 @@ mod tests {
         let config = Config::from_yaml(indoc! {"
             base:
               type: model
-              env:
+              setenv:
                 KEY: base_value
 
             network:
               type: model
-              env:
+              setenv:
                 KEY: network_value
 
             node:
               includes: [base, network]
-              env:
+              setenv:
                 KEY: command_value
         "})
         .unwrap();
@@ -1481,8 +1524,7 @@ mod tests {
         let node_cmd = config.get_command("node").unwrap();
         let merged = config.merge_with_template(node_cmd);
 
-        // Command's own env should override all models
-        assert_eq!(merged.env.get("KEY"), Some(&"command_value".to_string()));
+        assert_eq!(merged.setenv.get("KEY"), Some(&"command_value".to_string()));
     }
 
     #[test]

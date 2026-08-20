@@ -26,7 +26,7 @@ fn test_full_config_loading_and_execution() {
           enabled: true
           bind:
             - [~/.npm, ~/.npm]
-          env:
+          setenv:
             NODE_ENV: production
 
         python:
@@ -52,7 +52,10 @@ fn test_full_config_loading_and_execution() {
             .ro_bind
             .contains(&("/usr".to_string(), "/usr".to_string()))
     );
-    assert_eq!(merged.env.get("NODE_ENV"), Some(&"production".to_string()));
+    assert_eq!(
+        merged.setenv.get("NODE_ENV"),
+        Some(&"production".to_string())
+    );
 
     // Verify python command is disabled
     let python_cmd = config.get_command("python").unwrap();
@@ -82,12 +85,15 @@ fn test_bwrap_builder_integration() {
         die_with_parent: false,
         new_session: false,
         cap: vec![],
-        env: HashMap::new(),
-        unset_env: vec![],
+        setenv_if_unset: HashMap::new(),
+        setenv: HashMap::new(),
+        unsetenv: vec![],
         alias: None,
         args: vec![],
     };
-    config.env.insert("TEST".to_string(), "value".to_string());
+    config
+        .setenv
+        .insert("TEST".to_string(), "value".to_string());
 
     let builder = WrappedCommandBuilder::new(config, None);
     let args = builder.build_args();
@@ -136,10 +142,10 @@ fn test_config_with_all_features() {
             - /dev/null
           tmpfs:
             - /tmp
-          env:
+          setenv:
             VAR1: value1
             VAR2: value2
-          unset_env:
+          unsetenv:
             - DEBUG
             - VERBOSE
     "})
@@ -155,8 +161,8 @@ fn test_config_with_all_features() {
     assert_eq!(merged.bind.len(), 1);
     assert_eq!(merged.dev_bind.len(), 1);
     assert_eq!(merged.tmpfs.len(), 1);
-    assert_eq!(merged.env.len(), 2);
-    assert_eq!(merged.unset_env.len(), 2);
+    assert_eq!(merged.setenv.len(), 2);
+    assert_eq!(merged.unsetenv.len(), 2);
 
     // Build and verify bwrap args
     use sheld::bwrap::WrappedCommandBuilder;
@@ -248,8 +254,9 @@ fn test_command_show_formatting() {
         die_with_parent: false,
         new_session: false,
         cap: vec![],
-        env: HashMap::new(),
-        unset_env: vec![],
+        setenv_if_unset: HashMap::new(),
+        setenv: HashMap::new(),
+        unsetenv: vec![],
         alias: None,
         args: vec![],
     };
@@ -526,7 +533,7 @@ fn test_user_config_loaded_when_no_local_config() {
             - network
           bind:
             - [~/.gitconfig, ~/.gitconfig]
-          env:
+          setenv:
             GIT_AUTHOR_NAME: TestUser
     "};
     fs::write(&user_config_path, yaml).unwrap();
@@ -558,7 +565,7 @@ fn test_user_config_loaded_when_no_local_config() {
             .contains(&("/lib".to_string(), "/lib".to_string()))
     );
     assert_eq!(
-        merged.env.get("GIT_AUTHOR_NAME"),
+        merged.setenv.get("GIT_AUTHOR_NAME"),
         Some(&"TestUser".to_string())
     );
 }
@@ -575,14 +582,14 @@ fn test_local_config_takes_precedence_over_user_config() {
           enabled: true
           share:
             - user
-          env:
+          setenv:
             FROM_USER: yes
 
         node:
           enabled: true
           share:
             - user
-          env:
+          setenv:
             SOURCE: user_config
     "};
     fs::write(&user_config_path, user_yaml).unwrap();
@@ -595,7 +602,7 @@ fn test_local_config_takes_precedence_over_user_config() {
           share:
             - user
             - network
-          env:
+          setenv:
             SOURCE: local_config
     "};
     fs::write(&local_config_path, local_yaml).unwrap();
@@ -610,12 +617,12 @@ fn test_local_config_takes_precedence_over_user_config() {
     let node_cmd = config.get_command("node").unwrap();
     assert!(node_cmd.share.contains(&"network".to_string()));
     assert_eq!(
-        node_cmd.env.get("SOURCE"),
+        node_cmd.setenv.get("SOURCE"),
         Some(&"local_config".to_string())
     );
 
     let python_cmd = config.get_command("python").unwrap();
-    assert_eq!(python_cmd.env.get("FROM_USER"), Some(&"yes".to_string()));
+    assert_eq!(python_cmd.setenv.get("FROM_USER"), Some(&"yes".to_string()));
 }
 #[test]
 fn test_check_command_exists() {
