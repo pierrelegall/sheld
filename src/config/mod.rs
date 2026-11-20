@@ -208,8 +208,18 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 fn resolve_path(raw: &str, base_dir: &Path, entry: &str, field: &str) -> Result<String> {
-    let expanded = shellexpand::full(raw)
-        .with_context(|| format!("Failed to expand {field} path {raw:?} in entry {entry:?}"))?;
+    // Build the message from the variable name: the shellexpand cause alone
+    // ("environment variable not found") does not say which variable failed.
+    let expanded = shellexpand::full(raw).map_err(|err| {
+        let problem = match err.cause {
+            std::env::VarError::NotPresent => "is not set",
+            std::env::VarError::NotUnicode(_) => "is not valid UTF-8",
+        };
+        anyhow::anyhow!(
+            "environment variable `{}` {problem} (used in {field} path {raw:?} of entry {entry:?})",
+            err.var_name
+        )
+    })?;
     let path = Path::new(expanded.as_ref());
     let absolute = if path.is_relative() {
         base_dir.join(path)
@@ -736,10 +746,12 @@ mod tests {
         )
         .unwrap_err();
 
-        let message = format!("{error:#}");
-        assert!(message.contains("SHELD_PATH_VARIABLE_THAT_MUST_NOT_EXIST_0A46D88E"));
-        assert!(message.contains("bind"));
-        assert!(message.contains("node"));
+        // The innermost cause is what users see in the invalid config warning.
+        assert_eq!(
+            error.root_cause().to_string(),
+            "environment variable `SHELD_PATH_VARIABLE_THAT_MUST_NOT_EXIST_0A46D88E` is not set \
+             (used in bind path \"$SHELD_PATH_VARIABLE_THAT_MUST_NOT_EXIST_0A46D88E\" of entry \"node\")"
+        );
     }
 
     #[test]

@@ -32,7 +32,11 @@ fn sheld_list(cwd: &Path, home: &Path, simple: bool) -> Output {
     sheld(cwd, home, args)
 }
 
-fn assert_invalid_config_warning(output: &Output, config_path: &Path) {
+/// Cause reported for `INVALID_YAML`.
+const PARSE_CAUSE: &str = "did not find expected ',' or ']'";
+
+/// Assert the invalid configuration warning for `config_path`, reporting `cause`.
+fn assert_invalid_config_warning(output: &Output, config_path: &Path, cause: &str) {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert_eq!(output.status.code(), Some(1), "stderr:\n{stderr}");
@@ -41,7 +45,10 @@ fn assert_invalid_config_warning(output: &Output, config_path: &Path) {
         stderr.starts_with(WARNING),
         "warning should come first, got:\n{stderr}"
     );
-    assert!(stderr.contains("did not find expected ',' or ']'"));
+    assert!(
+        stderr.contains(&format!("[sheld]   {cause}")),
+        "cause {cause:?} missing, got:\n{stderr}"
+    );
     assert!(stderr.contains(&format!("[sheld] Please fix {}", config_path.display())));
 }
 
@@ -54,7 +61,7 @@ fn test_list_invalid_local_config_warns_and_fails() {
 
     for simple in [true, false] {
         let output = sheld_list(project.path(), home.path(), simple);
-        assert_invalid_config_warning(&output, &config_path);
+        assert_invalid_config_warning(&output, &config_path, PARSE_CAUSE);
     }
 }
 
@@ -72,7 +79,7 @@ fn test_config_commands_warn_on_invalid_config() {
         &["check", "node", "--silent"],
     ] {
         let output = sheld(project.path(), home.path(), args);
-        assert_invalid_config_warning(&output, &config_path);
+        assert_invalid_config_warning(&output, &config_path, PARSE_CAUSE);
     }
 }
 
@@ -105,7 +112,7 @@ fn test_list_invalid_user_config_names_user_file() {
     let project = isolated_dir();
 
     let output = sheld_list(project.path(), home.path(), true);
-    assert_invalid_config_warning(&output, &config_path);
+    assert_invalid_config_warning(&output, &config_path, PARSE_CAUSE);
 }
 
 #[test]
@@ -147,4 +154,24 @@ fn test_list_simple_valid_config_prints_enabled_commands() {
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "node\n");
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn test_unset_path_variable_warning_names_variable() {
+    let home = isolated_dir();
+    let project = isolated_dir();
+    let config_path = project.path().join(".sheld.yaml");
+    fs::write(
+        &config_path,
+        "node:\n  bind:\n    - $SHELD_CLI_VARIABLE_THAT_MUST_NOT_EXIST_7C21\n",
+    )
+    .unwrap();
+
+    let output = sheld_list(project.path(), home.path(), true);
+    assert_invalid_config_warning(
+        &output,
+        &config_path,
+        "environment variable `SHELD_CLI_VARIABLE_THAT_MUST_NOT_EXIST_7C21` is not set \
+         (used in bind path \"$SHELD_CLI_VARIABLE_THAT_MUST_NOT_EXIST_7C21\" of entry \"node\")",
+    );
 }
