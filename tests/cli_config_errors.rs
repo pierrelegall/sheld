@@ -14,10 +14,16 @@ const WARNING: &str =
 
 /// Run `sheld <args>` with isolated working and home directories.
 fn sheld(cwd: &Path, home: &Path, args: &[&str]) -> Output {
+    sheld_with_env(cwd, home, args, &[])
+}
+
+/// Run `sheld <args>` like [`sheld`], with extra environment variables.
+fn sheld_with_env(cwd: &Path, home: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_sheld"))
         .args(args)
         .current_dir(cwd)
         .env("HOME", home)
+        .envs(envs.iter().copied())
         .output()
         .unwrap()
 }
@@ -173,5 +179,55 @@ fn test_unset_path_variable_warning_names_variable() {
         &config_path,
         "environment variable `SHELD_CLI_VARIABLE_THAT_MUST_NOT_EXIST_7C21` is not set \
          (used in bind path \"$SHELD_CLI_VARIABLE_THAT_MUST_NOT_EXIST_7C21\" of entry \"node\")",
+    );
+}
+
+#[test]
+fn test_empty_path_variable_warning_names_variable() {
+    let home = isolated_dir();
+    let project = isolated_dir();
+    let config_path = project.path().join(".sheld.yaml");
+    fs::write(
+        &config_path,
+        "node:\n  bind:\n    - $SHELD_CLI_EMPTY_7C21/cache\n",
+    )
+    .unwrap();
+
+    let output = sheld_with_env(
+        project.path(),
+        home.path(),
+        &["list", "--simple"],
+        &[("SHELD_CLI_EMPTY_7C21", "")],
+    );
+    assert_invalid_config_warning(
+        &output,
+        &config_path,
+        "environment variable `SHELD_CLI_EMPTY_7C21` is empty \
+         (used in bind path \"$SHELD_CLI_EMPTY_7C21/cache\" of entry \"node\")",
+    );
+}
+
+#[test]
+fn test_path_variable_fallback_used_when_empty() {
+    let home = isolated_dir();
+    let project = isolated_dir();
+    fs::write(
+        project.path().join(".sheld.yaml"),
+        "node:\n  bind:\n    - ${SHELD_CLI_EMPTY_7C21:-/fallback/cache}\n",
+    )
+    .unwrap();
+
+    let output = sheld_with_env(
+        project.path(),
+        home.path(),
+        &["show", "node"],
+        &[("SHELD_CLI_EMPTY_7C21", "")],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        stdout.contains("--bind /fallback/cache /fallback/cache"),
+        "got:\n{stdout}"
     );
 }

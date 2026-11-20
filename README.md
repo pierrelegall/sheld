@@ -220,8 +220,32 @@ Mount entries use their destination as their identity.
 A scalar path maps to itself, and `[source, destination]` maps the source to that destination.
 When the same destination appears more than once in one YAML list, the later entry replaces the earlier entry.
 Ordering among entries in one mount field is unspecified.
-Mount sources, destinations, `tmpfs`, and `chdir` values expand `~` and `$VAR` when Sheld loads the configuration.
 Relative paths are resolved against the configuration file that declares them.
+
+### Path variables
+
+Mount sources, destinations, `tmpfs`, and `chdir` values expand variables, then a leading `~`, when Sheld loads the configuration.
+
+| Syntax             | Variable set          | Variable unset or empty |
+|--------------------|-----------------------|-------------------------|
+| `$VAR` or `${VAR}` | value of `VAR`        | error                   |
+| `${VAR:-fallback}` | value of `VAR`        | `fallback`              |
+
+```yaml
+node:
+  bind:
+    - ${NODE_CACHE:-/var/cache/node}  # /var/cache/node unless NODE_CACHE is set
+    - $XDG_DATA_HOME/node             # error if XDG_DATA_HOME is unset or empty
+```
+
+An empty variable is rejected like an unset one:
+otherwise `$VAR` would resolve to the configuration directory, and `$VAR/cache` to `/cache`.
+The error names the variable, and Sheld will not sandbox any command until it is fixed.
+
+The fallback is used as written: `~` and `$VAR` inside it are not expanded,
+so `${VAR:-~/cache}` resolves to a `~` directory next to the configuration file.
+Use an absolute path as fallback.
+An empty fallback (`${VAR:-}`) is rejected, whether `VAR` is set or not.
 
 ### Environment variables
 

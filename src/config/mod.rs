@@ -207,20 +207,90 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn resolve_path(raw: &str, base_dir: &Path, entry: &str, field: &str) -> Result<String> {
-    // Build the message from the variable name: the shellexpand cause alone
-    // ("environment variable not found") does not say which variable failed.
-    let expanded = shellexpand::full(raw).map_err(|err| {
-        let problem = match err.cause {
-            std::env::VarError::NotPresent => "is not set",
-            std::env::VarError::NotUnicode(_) => "is not valid UTF-8",
-        };
+/// Why a variable used in a configuration path cannot be expanded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathVarError {
+    Unset,
+    Empty,
+    NotUnicode,
+}
+
+impl PathVarError {
+    fn describe(self) -> &'static str {
+        match self {
+            PathVarError::Unset => "is not set",
+            PathVarError::Empty => "is empty",
+            PathVarError::NotUnicode => "is not valid UTF-8",
+        }
+    }
+}
+
+/// Look up a path variable in the process environment.
+///
+/// An empty value is an error, like an unset one: expanding it would silently
+/// turn `$X` into the configuration directory or `$X/cache` into `/cache`.
+fn lookup_path_var(name: &str) -> std::result::Result<Option<String>, PathVarError> {
+    match std::env::var(name) {
+        Ok(value) if value.is_empty() => Err(PathVarError::Empty),
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Err(PathVarError::Unset),
+        Err(std::env::VarError::NotUnicode(_)) => Err(PathVarError::NotUnicode),
+    }
+}
+
+/// Name of the first variable written with an empty fallback (`${X:-}`) in `raw`.
+///
+/// Like shellexpand, each `${` ends at the next `}`.
+fn find_empty_fallback(raw: &str) -> Option<&str> {
+    let mut rest = raw;
+    while let Some(start) = rest.find("${") {
+        let len = rest[start..].find('}')?;
+        let inner = &rest[start + 2..start + len];
+        if let Some(name) = inner.strip_suffix(":-").filter(|name| !name.is_empty()) {
+            return Some(name);
+        }
+        rest = &rest[start + len + 1..];
+    }
+    None
+}
+
+/// Expand variables and a leading `~` in `raw`, like `shellexpand::full`.
+///
+/// `$X` and `${X}` fail when `lookup` fails; `${X:-fallback}` uses the
+/// fallback instead (as written: it is not expanded itself). A `~` coming
+/// from a variable value or a fallback is not expanded. An empty fallback
+/// (`${X:-}`) is rejected, whether `X` is set or not.
+fn expand_path<L>(raw: &str, lookup: L, entry: &str, field: &str) -> Result<String>
+where
+    L: FnMut(&str) -> std::result::Result<Option<String>, PathVarError>,
+{
+    // An empty fallback would resolve to the configuration directory, or turn
+    // `${X:-}/cache` into `/cache`.
+    if let Some(name) = find_empty_fallback(raw) {
+        bail!(
+            "fallback for environment variable `{name}` is empty (used in {field} path {raw:?} of entry {entry:?})"
+        );
+    }
+    // Same home directory as `shellexpand::full`, which is not exposed.
+    let home_dir = || {
+        let home = shellexpand::tilde("~");
+        (home != "~").then(|| home.into_owned())
+    };
+    // Build the message from the variable name: the lookup error alone does
+    // not say which variable failed.
+    let expanded = shellexpand::full_with_context(raw, home_dir, lookup).map_err(|err| {
         anyhow::anyhow!(
-            "environment variable `{}` {problem} (used in {field} path {raw:?} of entry {entry:?})",
-            err.var_name
+            "environment variable `{}` {} (used in {field} path {raw:?} of entry {entry:?})",
+            err.var_name,
+            err.cause.describe()
         )
     })?;
-    let path = Path::new(expanded.as_ref());
+    Ok(expanded.into_owned())
+}
+
+fn resolve_path(raw: &str, base_dir: &Path, entry: &str, field: &str) -> Result<String> {
+    let expanded = expand_path(raw, lookup_path_var, entry, field)?;
+    let path = Path::new(&expanded);
     let absolute = if path.is_relative() {
         base_dir.join(path)
     } else {
@@ -737,6 +807,97 @@ mod tests {
         let current_dir = current_dir.to_string_lossy().into_owned();
 
         assert_eq!(node.bind.get(&current_dir), Some(&current_dir));
+    }
+
+    fn fake_lookup(name: &str) -> std::result::Result<Option<String>, PathVarError> {
+        match name {
+            "SET" => Ok(Some("/set".to_string())),
+            "EMPTY" => Err(PathVarError::Empty),
+            _ => Err(PathVarError::Unset),
+        }
+    }
+
+    fn expand(raw: &str) -> Result<String> {
+        expand_path(raw, fake_lookup, "node", "bind")
+    }
+
+    #[test]
+    fn test_expand_path_set_variable() {
+        assert_eq!(expand("$SET/cache").unwrap(), "/set/cache");
+        assert_eq!(expand("${SET}/cache").unwrap(), "/set/cache");
+        assert_eq!(expand("${SET:-/fallback}").unwrap(), "/set");
+    }
+
+    #[test]
+    fn test_expand_path_fallback_for_unset_and_empty_variables() {
+        assert_eq!(
+            expand("${UNSET:-/fallback}/cache").unwrap(),
+            "/fallback/cache"
+        );
+        assert_eq!(
+            expand("${EMPTY:-/fallback}/cache").unwrap(),
+            "/fallback/cache"
+        );
+    }
+
+    #[test]
+    fn test_expand_path_rejects_unset_and_empty_variables_without_fallback() {
+        for (raw, var, problem) in [
+            ("$UNSET", "UNSET", "is not set"),
+            ("${UNSET}/cache", "UNSET", "is not set"),
+            ("$EMPTY", "EMPTY", "is empty"),
+            ("$EMPTY/cache", "EMPTY", "is empty"),
+            ("./${EMPTY}", "EMPTY", "is empty"),
+        ] {
+            let error = expand(raw).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "environment variable `{var}` {problem} (used in bind path {raw:?} of entry \"node\")"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn test_expand_path_rejects_empty_fallback() {
+        for (raw, name) in [
+            ("${UNSET:-}", "UNSET"),
+            ("${SET:-}", "SET"),
+            ("${UNSET:-}/cache", "UNSET"),
+            ("/a/${SET}/${EMPTY:-}", "EMPTY"),
+        ] {
+            let error = expand(raw).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "fallback for environment variable `{name}` is empty (used in bind path {raw:?} of entry \"node\")"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn test_find_empty_fallback_ignores_non_empty_and_malformed() {
+        for raw in [
+            "${SET:-/ok}",
+            "$SET",
+            "${SET}",
+            "${:-}",
+            "/a:-}",
+            "${UNCLOSED:-",
+        ] {
+            assert_eq!(find_empty_fallback(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn test_expand_path_tilde_only_when_written_first() {
+        let home = shellexpand::tilde("~").into_owned();
+        assert_eq!(expand("~/cache").unwrap(), format!("{home}/cache"));
+        // The fallback is used as written: a `~` inside it is not expanded.
+        assert_eq!(expand("${UNSET:-~/cache}").unwrap(), "~/cache");
+        assert_eq!(expand("/x/${UNSET:-~}").unwrap(), "/x/~");
     }
 
     #[test]
