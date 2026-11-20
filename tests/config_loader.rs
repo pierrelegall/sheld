@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use indoc::indoc;
-use sheld::config::loader::ConfigLoader;
+use sheld::config::loader::{ConfigFileError, ConfigLoader};
 use std::fs;
 use tempfile::TempDir;
+
+mod common;
+
+use common::{INVALID_YAML, isolated_dir};
 
 #[test]
 fn test_get_local_config_file_in_current_dir() {
@@ -31,7 +35,7 @@ fn test_get_local_config_file_in_parent_dir() {
 
 #[test]
 fn test_get_local_config_file_not_found() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = isolated_dir();
 
     let found = ConfigLoader::get_local_config_file_from(temp_dir.path());
     assert!(found.is_none());
@@ -110,7 +114,7 @@ fn test_load_resolves_user_and_local_paths_against_their_own_files() {
 
 #[test]
 fn test_load_without_config() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = isolated_dir();
 
     let config = ConfigLoader::load_from(temp_dir.path(), temp_dir.path()).unwrap();
     assert!(config.is_none());
@@ -139,4 +143,57 @@ fn test_get_config_file_walks_up_directories() {
 
     let found = ConfigLoader::get_local_config_file_from(&sub2);
     assert_eq!(found, Some(config_path));
+}
+
+fn write_user_config(home: &std::path::Path, content: &str) -> std::path::PathBuf {
+    let config_dir = ConfigLoader::get_user_config_dir_from(home);
+    fs::create_dir_all(&config_dir).unwrap();
+    let config_path = config_dir.join(ConfigLoader::user_config_name());
+    fs::write(&config_path, content).unwrap();
+    config_path
+}
+
+#[test]
+fn test_load_invalid_local_config_reports_its_path() {
+    let fake_home = TempDir::new().unwrap();
+    let local_dir = TempDir::new().unwrap();
+    let local_path = local_dir.path().join(ConfigLoader::local_config_name());
+    fs::write(&local_path, INVALID_YAML).unwrap();
+
+    let err = ConfigLoader::load_from(local_dir.path(), fake_home.path()).unwrap_err();
+    let file_err = err
+        .downcast_ref::<ConfigFileError>()
+        .expect("error should carry the failing file path");
+    assert_eq!(file_err.path, local_path);
+}
+
+#[test]
+fn test_load_invalid_user_config_reports_its_path() {
+    let fake_home = TempDir::new().unwrap();
+    let user_path = write_user_config(fake_home.path(), INVALID_YAML);
+
+    let local_dir = TempDir::new().unwrap();
+    fs::write(
+        local_dir.path().join(ConfigLoader::local_config_name()),
+        "node:\n  enabled: true\n",
+    )
+    .unwrap();
+
+    let err = ConfigLoader::load_from(local_dir.path(), fake_home.path()).unwrap_err();
+    let file_err = err.downcast_ref::<ConfigFileError>().unwrap();
+    assert_eq!(file_err.path, user_path);
+}
+
+#[test]
+fn test_load_invalid_local_config_with_valid_user_config_reports_local_path() {
+    let fake_home = TempDir::new().unwrap();
+    write_user_config(fake_home.path(), "node:\n  enabled: true\n");
+
+    let local_dir = TempDir::new().unwrap();
+    let local_path = local_dir.path().join(ConfigLoader::local_config_name());
+    fs::write(&local_path, INVALID_YAML).unwrap();
+
+    let err = ConfigLoader::load_from(local_dir.path(), fake_home.path()).unwrap_err();
+    let file_err = err.downcast_ref::<ConfigFileError>().unwrap();
+    assert_eq!(file_err.path, local_path);
 }

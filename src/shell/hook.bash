@@ -24,7 +24,7 @@ __sheld_wrap() {
 
 # Update the commands list
 __sheld_update_command_list() {
-  SHELD_COMMANDS=$(sheld list --simple 2>/dev/null)
+  SHELD_COMMANDS=$(sheld list --simple)
 }
 
 # Set all commands

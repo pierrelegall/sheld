@@ -25,7 +25,7 @@ end
 
 # Update the commands list
 function __sheld_update_command_list
-  set -g SHELD_COMMANDS (sheld list --simple 2>/dev/null)
+  set -g SHELD_COMMANDS (sheld list --simple)
 end
 
 # Set all commands

@@ -19,6 +19,29 @@ const USER_CONFIG_DIR_PATH: &str = "~/.config/sheld";
 /// User config subdirectory relative to home
 const USER_CONFIG_DIR_RELATIVE: &str = ".config/sheld";
 
+/// Error context attached when a configuration file cannot be read or parsed.
+///
+/// Retrieve it with `err.downcast_ref::<ConfigFileError>()` to know which file failed.
+#[derive(Debug, Clone)]
+pub struct ConfigFileError {
+    pub path: PathBuf,
+}
+
+impl std::fmt::Display for ConfigFileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid configuration file {}", self.path.display())
+    }
+}
+
+impl std::error::Error for ConfigFileError {}
+
+/// Load a single config file, tagging any error with the file path.
+fn load_file(path: &Path) -> Result<Config> {
+    Config::from_file(path).context(ConfigFileError {
+        path: path.to_path_buf(),
+    })
+}
+
 pub struct ConfigLoader;
 
 impl ConfigLoader {
@@ -92,12 +115,12 @@ impl ConfigLoader {
 
         let config = match (user_config, local_config) {
             (Some(user_path), Some(local_path)) => {
-                let user = Config::from_file(&user_path)?;
-                let local = Config::from_file(&local_path)?;
+                let user = load_file(&user_path)?;
+                let local = load_file(&local_path)?;
                 Some(Config::merge(user, local))
             }
-            (Some(user_path), None) => Some(Config::from_file(&user_path)?),
-            (None, Some(local_path)) => Some(Config::from_file(&local_path)?),
+            (Some(user_path), None) => Some(load_file(&user_path)?),
+            (None, Some(local_path)) => Some(load_file(&local_path)?),
             (None, None) => None,
         };
 

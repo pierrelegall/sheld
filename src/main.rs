@@ -9,12 +9,24 @@ use clap::Parser;
 
 use cli::{Action, Cli};
 use sheld::bwrap::WrappedCommandBuilder;
-use sheld::config::{self, loader::ConfigLoader};
+use sheld::config::{
+    self,
+    loader::{ConfigFileError, ConfigLoader},
+};
 use shell::Shell;
 
-fn main() -> Result<()> {
+fn main() {
     let input = Cli::parse();
 
+    if let Err(err) = run(input) {
+        if !report_invalid_config(&err) {
+            eprintln!("Error: {err:?}");
+        }
+        std::process::exit(1);
+    }
+}
+
+fn run(input: Cli) -> Result<()> {
     match input.action {
         Action::Init => {
             initialize_config()?;
@@ -38,7 +50,7 @@ fn main() -> Result<()> {
             print_shell_hook(&shell)?;
         }
         Action::Check { command, silent } => {
-            if check_command(&command, silent).is_err() {
+            if !check_command(&command, silent)? {
                 std::process::exit(1);
             }
         }
@@ -84,8 +96,46 @@ fn wrap_command(command: &str, args: &[String]) -> Result<()> {
     std::process::exit(exit_code)
 }
 
+/// Warn the user that a configuration file is invalid and that no command
+/// will be sandboxed until it is fixed. Returns `true` if `err` was caused by
+/// an invalid configuration file and a warning was printed.
+fn report_invalid_config(err: &anyhow::Error) -> bool {
+    let Some(file_err) = err.downcast_ref::<ConfigFileError>() else {
+        return false;
+    };
+    let path = file_err.path.display();
+
+    eprintln!("[sheld] WARNING: sheld will NOT sandbox any commands until this is fixed.");
+    eprintln!();
+    eprintln!("[sheld] Error: failed to load configuration file {}", path);
+    eprintln!("[sheld]   {}", err.root_cause());
+    eprintln!();
+    eprintln!("[sheld] Please fix {}", path);
+    eprintln!(
+        "[sheld] (run `sheld validate {}` to check it)",
+        shell_quote(&path.to_string())
+    );
+    true
+}
+
+/// Quote `value` for POSIX shells so it can be copy-pasted as one argument.
+fn shell_quote(value: &str) -> String {
+    let is_safe = |c: char| c.is_ascii_alphanumeric() || "/._-+=:,@%".contains(c);
+    if !value.is_empty() && value.chars().all(is_safe) {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
 fn list_commands(simple: bool) -> Result<()> {
-    let config = ConfigLoader::load()?.context("No configuration found")?;
+    let config = match ConfigLoader::load()? {
+        Some(config) => config,
+        // In simple mode (used by shell hooks), having no configuration is not
+        // an error: there is simply nothing to wrap.
+        None if simple => return Ok(()),
+        None => bail!("No configuration found"),
+    };
 
     // Sort commands alphabetically
     let commands_map = config.get_commands();
@@ -227,7 +277,8 @@ fn print_shell_hook(shell_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_command(command: &str, silent: bool) -> Result<()> {
+/// Returns whether `command` is configured. Fails if the configuration cannot be loaded.
+fn check_command(command: &str, silent: bool) -> Result<bool> {
     let config = ConfigLoader::load()?.context("No configuration found")?;
 
     let command_basename = get_command_basename(command);
@@ -238,13 +289,11 @@ fn check_command(command: &str, silent: bool) -> Result<()> {
         if !silent {
             println!("Command `{}` is configured", command_basename);
         }
-        Ok(())
-    } else {
-        if !silent {
-            eprintln!("Command `{}` not found in configuration", command_basename);
-        }
-        bail!("Command not found")
+    } else if !silent {
+        eprintln!("Command `{}` not found in configuration", command_basename);
     }
+
+    Ok(command_exists)
 }
 
 #[cfg(test)]
@@ -253,6 +302,17 @@ mod tests {
     use indoc::indoc;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_shell_quote() {
+        assert_eq!(
+            shell_quote("/home/user/.sheld.yaml"),
+            "/home/user/.sheld.yaml"
+        );
+        assert_eq!(shell_quote("/my dir/.sheld.yaml"), "'/my dir/.sheld.yaml'");
+        assert_eq!(shell_quote("/it's/.sheld.yaml"), "'/it'\\''s/.sheld.yaml'");
+        assert_eq!(shell_quote(""), "''");
+    }
 
     #[test]
     fn test_get_command_basename_simple_name() {
