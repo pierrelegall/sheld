@@ -1,0 +1,10 @@
+[tools]
+rust = "stable"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test"
+
+[tasks.pre-commit]
+description = "Checks to run before committing"
+depends = ["test"]
