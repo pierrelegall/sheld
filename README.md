@@ -63,7 +63,7 @@ Initialize a configuration file:
 sheld init
 ```
 
-Edit the `.sheld.yaml` file to define your command wraps:
+Edit the `sheld.yaml` file to define your command wraps:
 
 ```yaml
 node:
@@ -79,7 +79,7 @@ node:
     - .
 ```
 
-Relative paths are resolved against the directory containing `.sheld.yaml`, not the current working directory.
+Relative paths are resolved against the directory containing `sheld.yaml`, not the current working directory.
 This means you can run commands from any subdirectory and the binds stay consistent.
 Use `$PWD` if you need the runtime working directory instead.
 
@@ -151,8 +151,8 @@ node:
   bind:                     # Read-write mounts
     - ~/.node_modules       # Sugar: ~ binds to $HOME
     - [$PWD, /app]          # $PWD = runtime working directory
-    - [./src, /app/src]     # Relative to .sheld.yaml dir
-    - .                     # Sugar: binds .sheld.yaml dir to itself
+    - [./src, /app/src]     # Relative to sheld.yaml dir
+    - .                     # Sugar: binds sheld.yaml dir to itself
   ro_bind:                  # Read-only mounts
     - /etc/resolv.conf
   dev_bind:                 # Device bind mounts
@@ -184,9 +184,11 @@ node:
 Sheld merges configuration files to combine user global defaults with project-specific settings:
 
 1. **User**: `~/.config/sheld/default.yaml`
-2. **Local**: `.sheld.yaml` (in current or parent directory)
+2. **Local**: `sheld.yaml` (in current or parent directory)
 
-When both files exist, they are merged with local entries taking precedence:
+The nearest directory with a `sheld.yaml` wins.
+
+When both the user and local files exist, they are merged with local entries taking precedence:
 - Commands/models with the same name:
   - `override: false` (default): Deep merge (parent + child settings combined)
   - `override: true`: Child completely replaces parent

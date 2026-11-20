@@ -111,10 +111,12 @@ fn report_invalid_config(err: &anyhow::Error) -> bool {
     eprintln!("[sheld]   {}", err.root_cause());
     eprintln!();
     eprintln!("[sheld] Please fix {}", path);
-    eprintln!(
-        "[sheld] (run `sheld validate {}` to check it)",
-        shell_quote(&path.to_string())
-    );
+    if file_err.validate_hint {
+        eprintln!(
+            "[sheld] (run `sheld validate {}` to check it)",
+            shell_quote(&path.to_string())
+        );
+    }
     true
 }
 
@@ -252,7 +254,9 @@ fn initialize_config() -> Result<()> {
     let template_content = include_str!("../examples/default.yaml");
 
     let config_path = ConfigLoader::local_config_name();
-    if std::path::Path::new(config_path).exists() {
+    // Also fails on a former `.sheld.yaml`, asking to rename it instead.
+    let current_dir = std::env::current_dir().context("Failed to get current directory")?;
+    if ConfigLoader::get_local_config_file_in(&current_dir)?.is_some() {
         bail!("{} file already exists in current directory", config_path);
     }
 

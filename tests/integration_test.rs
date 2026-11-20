@@ -544,7 +544,8 @@ fn test_user_config_loaded_when_no_local_config() {
 
     let work_dir = TempDir::new().unwrap();
 
-    let found_config = ConfigLoader::get_config_file_from(work_dir.path(), fake_home.path());
+    let found_config =
+        ConfigLoader::get_config_file_from(work_dir.path(), fake_home.path()).unwrap();
     assert_eq!(found_config, Some(user_config_path));
 
     let config = ConfigLoader::load_from(work_dir.path(), fake_home.path())
@@ -603,7 +604,8 @@ fn test_local_config_takes_precedence_over_user_config() {
     "};
     fs::write(&local_config_path, local_yaml).unwrap();
 
-    let found_config = ConfigLoader::get_config_file_from(work_dir.path(), fake_home.path());
+    let found_config =
+        ConfigLoader::get_config_file_from(work_dir.path(), fake_home.path()).unwrap();
     assert_eq!(found_config, Some(local_config_path));
 
     let config = ConfigLoader::load_from(work_dir.path(), fake_home.path())

@@ -16,7 +16,7 @@ fn test_get_local_config_file_in_current_dir() {
     let config_path = temp_dir.path().join(ConfigLoader::local_config_name());
     fs::write(&config_path, "commands: {}").unwrap();
 
-    let found = ConfigLoader::get_local_config_file_from(temp_dir.path());
+    let found = ConfigLoader::get_local_config_file_from(temp_dir.path()).unwrap();
     assert_eq!(found, Some(config_path));
 }
 
@@ -29,7 +29,7 @@ fn test_get_local_config_file_in_parent_dir() {
     let sub_dir = temp_dir.path().join("subdir");
     fs::create_dir(&sub_dir).unwrap();
 
-    let found = ConfigLoader::get_local_config_file_from(&sub_dir);
+    let found = ConfigLoader::get_local_config_file_from(&sub_dir).unwrap();
     assert_eq!(found, Some(config_path));
 }
 
@@ -37,7 +37,7 @@ fn test_get_local_config_file_in_parent_dir() {
 fn test_get_local_config_file_not_found() {
     let temp_dir = isolated_dir();
 
-    let found = ConfigLoader::get_local_config_file_from(temp_dir.path());
+    let found = ConfigLoader::get_local_config_file_from(temp_dir.path()).unwrap();
     assert!(found.is_none());
 }
 
@@ -128,7 +128,7 @@ fn test_get_config_file_hierarchy_local_first() {
 
     let fake_home = TempDir::new().unwrap();
 
-    let found = ConfigLoader::get_config_file_from(temp_dir.path(), fake_home.path());
+    let found = ConfigLoader::get_config_file_from(temp_dir.path(), fake_home.path()).unwrap();
     assert_eq!(found, Some(config_path));
 }
 
@@ -141,7 +141,7 @@ fn test_get_config_file_walks_up_directories() {
     let sub2 = temp_dir.path().join("level1").join("level2");
     fs::create_dir_all(&sub2).unwrap();
 
-    let found = ConfigLoader::get_local_config_file_from(&sub2);
+    let found = ConfigLoader::get_local_config_file_from(&sub2).unwrap();
     assert_eq!(found, Some(config_path));
 }
 
@@ -196,4 +196,68 @@ fn test_load_invalid_local_config_with_valid_user_config_reports_local_path() {
     let err = ConfigLoader::load_from(local_dir.path(), fake_home.path()).unwrap_err();
     let file_err = err.downcast_ref::<ConfigFileError>().unwrap();
     assert_eq!(file_err.path, local_path);
+}
+
+fn legacy_error(dir: &std::path::Path, home: &std::path::Path) -> (std::path::PathBuf, String) {
+    let err = ConfigLoader::load_from(dir, home).unwrap_err();
+    let file_err = err.downcast_ref::<ConfigFileError>().unwrap();
+    assert!(!file_err.validate_hint);
+    (file_err.path.clone(), err.root_cause().to_string())
+}
+
+#[test]
+fn test_legacy_local_config_name_is_rejected() {
+    let fake_home = isolated_dir();
+    let local_dir = isolated_dir();
+    let legacy_path = local_dir
+        .path()
+        .join(ConfigLoader::legacy_local_config_name());
+    fs::write(&legacy_path, "node:\n  enabled: true\n").unwrap();
+
+    let (path, cause) = legacy_error(local_dir.path(), fake_home.path());
+    assert_eq!(path, legacy_path);
+    assert_eq!(
+        cause,
+        "`.sheld.yaml` is no longer read: rename it to `sheld.yaml`"
+    );
+}
+
+#[test]
+fn test_legacy_local_config_name_next_to_new_name_is_rejected() {
+    let fake_home = isolated_dir();
+    let local_dir = isolated_dir();
+    fs::write(
+        local_dir.path().join(ConfigLoader::local_config_name()),
+        "node:\n  enabled: true\n",
+    )
+    .unwrap();
+    let legacy_path = local_dir
+        .path()
+        .join(ConfigLoader::legacy_local_config_name());
+    fs::write(&legacy_path, "node:\n  enabled: true\n").unwrap();
+
+    let (path, cause) = legacy_error(local_dir.path(), fake_home.path());
+    assert_eq!(path, legacy_path);
+    assert_eq!(
+        cause,
+        "`.sheld.yaml` is no longer read: merge it into `sheld.yaml` and remove it"
+    );
+}
+
+#[test]
+fn test_legacy_local_config_name_is_not_skipped_for_a_parent_config() {
+    let fake_home = isolated_dir();
+    let parent = isolated_dir();
+    fs::write(
+        parent.path().join(ConfigLoader::local_config_name()),
+        "node:\n  enabled: true\n",
+    )
+    .unwrap();
+    let sub_dir = parent.path().join("sub");
+    fs::create_dir(&sub_dir).unwrap();
+    let legacy_path = sub_dir.join(ConfigLoader::legacy_local_config_name());
+    fs::write(&legacy_path, "node:\n  enabled: true\n").unwrap();
+
+    let (path, _) = legacy_error(&sub_dir, fake_home.path());
+    assert_eq!(path, legacy_path);
 }

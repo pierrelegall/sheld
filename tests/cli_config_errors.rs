@@ -62,12 +62,16 @@ fn assert_invalid_config_warning(output: &Output, config_path: &Path, cause: &st
 fn test_list_invalid_local_config_warns_and_fails() {
     let home = isolated_dir();
     let project = isolated_dir();
-    let config_path = project.path().join(".sheld.yaml");
+    let config_path = project.path().join("sheld.yaml");
     fs::write(&config_path, INVALID_YAML).unwrap();
 
     for simple in [true, false] {
         let output = sheld_list(project.path(), home.path(), simple);
         assert_invalid_config_warning(&output, &config_path, PARSE_CAUSE);
+        assert!(String::from_utf8_lossy(&output.stderr).contains(&format!(
+            "[sheld] (run `sheld validate {}` to check it)",
+            config_path.display()
+        )));
     }
 }
 
@@ -75,7 +79,7 @@ fn test_list_invalid_local_config_warns_and_fails() {
 fn test_config_commands_warn_on_invalid_config() {
     let home = isolated_dir();
     let project = isolated_dir();
-    let config_path = project.path().join(".sheld.yaml");
+    let config_path = project.path().join("sheld.yaml");
     fs::write(&config_path, INVALID_YAML).unwrap();
 
     for args in [
@@ -94,7 +98,7 @@ fn test_check_reports_missing_command_without_warning() {
     let home = isolated_dir();
     let project = isolated_dir();
     fs::write(
-        project.path().join(".sheld.yaml"),
+        project.path().join("sheld.yaml"),
         "node:\n  enabled: true\n",
     )
     .unwrap();
@@ -150,7 +154,7 @@ fn test_list_simple_valid_config_prints_enabled_commands() {
     let home = isolated_dir();
     let project = isolated_dir();
     fs::write(
-        project.path().join(".sheld.yaml"),
+        project.path().join("sheld.yaml"),
         "node:\n  enabled: true\npython:\n  enabled: false\n",
     )
     .unwrap();
@@ -166,7 +170,7 @@ fn test_list_simple_valid_config_prints_enabled_commands() {
 fn test_unset_path_variable_warning_names_variable() {
     let home = isolated_dir();
     let project = isolated_dir();
-    let config_path = project.path().join(".sheld.yaml");
+    let config_path = project.path().join("sheld.yaml");
     fs::write(
         &config_path,
         "node:\n  bind:\n    - $SHELD_CLI_VARIABLE_THAT_MUST_NOT_EXIST_7C21\n",
@@ -186,7 +190,7 @@ fn test_unset_path_variable_warning_names_variable() {
 fn test_empty_path_variable_warning_names_variable() {
     let home = isolated_dir();
     let project = isolated_dir();
-    let config_path = project.path().join(".sheld.yaml");
+    let config_path = project.path().join("sheld.yaml");
     fs::write(
         &config_path,
         "node:\n  bind:\n    - $SHELD_CLI_EMPTY_7C21/cache\n",
@@ -212,7 +216,7 @@ fn test_path_variable_fallback_used_when_empty() {
     let home = isolated_dir();
     let project = isolated_dir();
     fs::write(
-        project.path().join(".sheld.yaml"),
+        project.path().join("sheld.yaml"),
         "node:\n  bind:\n    - ${SHELD_CLI_EMPTY_7C21:-/fallback/cache}\n",
     )
     .unwrap();
@@ -230,4 +234,83 @@ fn test_path_variable_fallback_used_when_empty() {
         stdout.contains("--bind /fallback/cache /fallback/cache"),
         "got:\n{stdout}"
     );
+}
+
+#[test]
+fn test_legacy_local_config_name_warns_to_rename() {
+    for (with_new_name, cause) in [
+        (
+            false,
+            "`.sheld.yaml` is no longer read: rename it to `sheld.yaml`",
+        ),
+        (
+            true,
+            "`.sheld.yaml` is no longer read: merge it into `sheld.yaml` and remove it",
+        ),
+    ] {
+        let home = isolated_dir();
+        let project = isolated_dir();
+        if with_new_name {
+            fs::write(
+                project.path().join("sheld.yaml"),
+                "node:\n  enabled: true\n",
+            )
+            .unwrap();
+        }
+        let legacy_path = project.path().join(".sheld.yaml");
+        fs::write(&legacy_path, "node:\n  enabled: true\n").unwrap();
+
+        let output = sheld_list(project.path(), home.path(), true);
+        // The file is valid: `sheld validate` would not help.
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("sheld validate"));
+        assert_invalid_config_warning(&output, &legacy_path, cause);
+    }
+}
+
+#[test]
+fn test_init_writes_sheld_yaml() {
+    let home = isolated_dir();
+    let project = isolated_dir();
+
+    let output = sheld(project.path(), home.path(), &["init"]);
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(project.path().join("sheld.yaml").is_file());
+}
+
+#[test]
+fn test_init_refuses_when_sheld_yaml_exists() {
+    let home = isolated_dir();
+    let project = isolated_dir();
+    fs::write(
+        project.path().join("sheld.yaml"),
+        "node:\n  enabled: true\n",
+    )
+    .unwrap();
+
+    let output = sheld(project.path(), home.path(), &["init"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("sheld.yaml file already exists in current directory"),
+        "got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_init_asks_to_rename_legacy_config() {
+    let home = isolated_dir();
+    let project = isolated_dir();
+    let legacy_path = project.path().join(".sheld.yaml");
+    fs::write(&legacy_path, "node:\n  enabled: true\n").unwrap();
+
+    let output = sheld(project.path(), home.path(), &["init"]);
+
+    assert_invalid_config_warning(
+        &output,
+        &legacy_path,
+        "`.sheld.yaml` is no longer read: rename it to `sheld.yaml`",
+    );
+    assert!(!project.path().join("sheld.yaml").exists());
 }

@@ -1,14 +1,17 @@
 // Copyright (C) 2025 Pierre Le Gall
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::env;
 use std::path::{Path, PathBuf};
 
 use super::Config;
 
 /// Local config file name
-const LOCAL_CONFIG_FILE_NAME: &str = ".sheld.yaml";
+const LOCAL_CONFIG_FILE_NAME: &str = "sheld.yaml";
+
+/// Former local config file name: no longer read, only detected to ask for a rename
+const LEGACY_LOCAL_CONFIG_FILE_NAME: &str = ".sheld.yaml";
 
 /// User config file name
 const USER_CONFIG_FILE_NAME: &str = "default.yaml";
@@ -25,6 +28,9 @@ const USER_CONFIG_DIR_RELATIVE: &str = ".config/sheld";
 #[derive(Debug, Clone)]
 pub struct ConfigFileError {
     pub path: PathBuf,
+    /// Whether `sheld validate <path>` helps diagnose the problem: false when
+    /// the file itself may be fine, e.g. a former `.sheld.yaml`.
+    pub validate_hint: bool,
 }
 
 impl std::fmt::Display for ConfigFileError {
@@ -39,6 +45,7 @@ impl std::error::Error for ConfigFileError {}
 fn load_file(path: &Path) -> Result<Config> {
     Config::from_file(path).context(ConfigFileError {
         path: path.to_path_buf(),
+        validate_hint: true,
     })
 }
 
@@ -47,8 +54,14 @@ pub struct ConfigLoader;
 impl ConfigLoader {
     // --- Constants ---
 
+    /// Local config file name, written by `sheld init`.
     pub fn local_config_name() -> &'static str {
         LOCAL_CONFIG_FILE_NAME
+    }
+
+    /// Former local config file name, no longer read: finding it is an error.
+    pub fn legacy_local_config_name() -> &'static str {
+        LEGACY_LOCAL_CONFIG_FILE_NAME
     }
 
     pub fn user_config_name() -> &'static str {
@@ -61,25 +74,38 @@ impl ConfigLoader {
 
     // --- Core logic (explicit paths, no global state) ---
 
-    /// Walk up from `start` to find the directory containing a local config file.
-    pub fn get_local_config_dir_from(start: &Path) -> Option<PathBuf> {
-        let mut dir = start;
-        loop {
-            let config_path = dir.join(LOCAL_CONFIG_FILE_NAME);
-            if config_path.exists() {
-                return Some(dir.to_path_buf());
-            }
-            match dir.parent() {
-                Some(parent) => dir = parent,
-                None => break,
-            }
+    /// Find the local config file in `dir` itself, without looking at parents.
+    ///
+    /// Fails if the former `.sheld.yaml` is there: ignoring it would silently
+    /// stop sandboxing the commands it configures.
+    pub fn get_local_config_file_in(dir: &Path) -> Result<Option<PathBuf>> {
+        let config = dir.join(LOCAL_CONFIG_FILE_NAME);
+        let legacy = dir.join(LEGACY_LOCAL_CONFIG_FILE_NAME);
+        if legacy.exists() {
+            let fix = if config.exists() {
+                format!("merge it into `{LOCAL_CONFIG_FILE_NAME}` and remove it")
+            } else {
+                format!("rename it to `{LOCAL_CONFIG_FILE_NAME}`")
+            };
+            return Err(anyhow!(
+                "`{LEGACY_LOCAL_CONFIG_FILE_NAME}` is no longer read: {fix}"
+            ))
+            .context(ConfigFileError {
+                path: legacy,
+                validate_hint: false,
+            });
         }
-        None
+        Ok(config.exists().then_some(config))
     }
 
-    /// Derive the local config file path by walking up from `start`.
-    pub fn get_local_config_file_from(start: &Path) -> Option<PathBuf> {
-        Self::get_local_config_dir_from(start).map(|dir| dir.join(LOCAL_CONFIG_FILE_NAME))
+    /// Walk up from `start` to find the local config file.
+    pub fn get_local_config_file_from(start: &Path) -> Result<Option<PathBuf>> {
+        for dir in start.ancestors() {
+            if let Some(path) = Self::get_local_config_file_in(dir)? {
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
     }
 
     /// Build the user config directory from an explicit home path.
@@ -98,8 +124,9 @@ impl ConfigLoader {
     }
 
     /// Find config file path in hierarchical order (local first, then user).
-    pub fn get_config_file_from(start: &Path, home: &Path) -> Option<PathBuf> {
-        Self::get_local_config_file_from(start).or_else(|| Self::get_user_config_file_from(home))
+    pub fn get_config_file_from(start: &Path, home: &Path) -> Result<Option<PathBuf>> {
+        Ok(Self::get_local_config_file_from(start)?
+            .or_else(|| Self::get_user_config_file_from(home)))
     }
 
     /// Load config and return it along with the local config directory.
@@ -108,10 +135,10 @@ impl ConfigLoader {
         home: &Path,
     ) -> Result<(Option<Config>, Option<PathBuf>)> {
         let user_config = Self::get_user_config_file_from(home);
-        let local_config_dir = Self::get_local_config_dir_from(start);
-        let local_config = local_config_dir
+        let local_config = Self::get_local_config_file_from(start)?;
+        let local_config_dir = local_config
             .as_ref()
-            .map(|dir| dir.join(LOCAL_CONFIG_FILE_NAME));
+            .and_then(|path| path.parent().map(Path::to_path_buf));
 
         let config = match (user_config, local_config) {
             (Some(user_path), Some(local_path)) => {
@@ -136,10 +163,7 @@ impl ConfigLoader {
     pub fn get_config_file() -> Result<Option<PathBuf>> {
         let current_dir = env::current_dir().context("Failed to get current directory")?;
         let home = shellexpand::tilde("~");
-        Ok(Self::get_config_file_from(
-            &current_dir,
-            Path::new(home.as_ref()),
-        ))
+        Self::get_config_file_from(&current_dir, Path::new(home.as_ref()))
     }
 
     /// Load config from the current directory and $HOME.

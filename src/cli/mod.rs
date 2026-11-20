@@ -13,7 +13,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Action {
-    /// Initialize a new .sheld.yaml file
+    /// Initialize a new sheld.yaml file
     Init,
 
     /// List active profiles and configurations
